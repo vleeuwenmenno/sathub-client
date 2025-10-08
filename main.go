@@ -281,13 +281,34 @@ func updateClient() error {
 	fmt.Printf("Downloading latest version from %s...\n", installURL)
 	fmt.Println()
 
-	// Run curl and pipe to bash
-	cmd := exec.Command("bash", "-c", fmt.Sprintf("curl -sSL %s | bash", installURL))
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	cmd.Stdin = os.Stdin
+	// Download script to temporary file to preserve stdin for interactive prompts
+	tmpFile, err := os.CreateTemp("", "sathub-install-*.sh")
+	if err != nil {
+		return fmt.Errorf("failed to create temp file: %w", err)
+	}
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
 
-	if err := cmd.Run(); err != nil {
+	// Download script
+	curlCmd := exec.Command("curl", "-sSL", "-o", tmpFile.Name(), installURL)
+	curlCmd.Stdout = os.Stdout
+	curlCmd.Stderr = os.Stderr
+	if err := curlCmd.Run(); err != nil {
+		return fmt.Errorf("failed to download install script: %w", err)
+	}
+
+	// Make executable
+	if err := os.Chmod(tmpFile.Name(), 0755); err != nil {
+		return fmt.Errorf("failed to make script executable: %w", err)
+	}
+
+	// Run script with stdin connected to terminal
+	bashCmd := exec.Command("bash", tmpFile.Name())
+	bashCmd.Stdout = os.Stdout
+	bashCmd.Stderr = os.Stderr
+	bashCmd.Stdin = os.Stdin
+
+	if err := bashCmd.Run(); err != nil {
 		return fmt.Errorf("update failed: %w", err)
 	}
 

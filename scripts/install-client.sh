@@ -209,9 +209,19 @@ setup_service() {
         return
     fi
 
-    # Check if running in interactive mode
-    if ! [ -t 0 ]; then
-        log_info "Non-interactive mode detected, skipping service setup"
+    # Check if we have access to a terminal (even if stdin is piped)
+    if ! [ -t 0 ] && ! [ -c /dev/tty ]; then
+        # Truly non-interactive - no terminal available
+        if systemctl list-unit-files | grep -q "sathub-client.service"; then
+            log_info "Restarting existing systemd service with updated binary..."
+            if systemctl restart sathub-client 2>/dev/null; then
+                log_success "Service restarted successfully"
+            else
+                log_warning "Failed to restart service (you may need to restart it manually)"
+            fi
+        else
+            log_info "Run 'sudo sathub-client install-service' to set up automatic startup"
+        fi
         return
     fi
 
@@ -221,12 +231,17 @@ setup_service() {
     # Check if service already exists
     if systemctl list-unit-files | grep -q "sathub-client.service"; then
         echo "Systemd service is already installed."
-        echo "Would you like to reconfigure it? (y/N): "
+        echo -n "Would you like to reconfigure it? (y/N): "
     else
-        echo "Would you like to set up a systemd service for automatic startup? (y/N): "
+        echo -n "Would you like to set up a systemd service for automatic startup? (y/N): "
     fi
     
-    read -r response
+    # Read from /dev/tty if stdin is not a terminal (for piped execution like curl | bash)
+    if [ -t 0 ]; then
+        read -r response
+    else
+        read -r response < /dev/tty
+    fi
 
     case $response in
         [Yy]|[Yy][Ee][Ss])
