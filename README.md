@@ -99,10 +99,10 @@ Download the appropriate binary for your platform from the [GitHub releases page
 
 ```bash
 cd client
-go build -o sathub-client
+go build -o bin/sathub-client
 ```
 
-This creates the `sathub-client` binary in the current directory.
+This creates the `sathub-client` binary in the `bin` directory.
 
 ## Configuration
 
