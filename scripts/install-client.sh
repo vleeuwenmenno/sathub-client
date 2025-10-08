@@ -117,6 +117,9 @@ find_asset() {
     fi
 
     if [[ -z "$DOWNLOAD_URL" ]]; then
+        # Asset not found - check if this is a brand new release with missing assets
+        check_new_release_status
+        
         log_error "Could not find asset '${ASSET_NAME}' in release ${LATEST_VERSION}"
         log_error "Available assets:"
         if command -v jq &> /dev/null; then
@@ -128,6 +131,42 @@ find_asset() {
     fi
 
     log_info "Found asset: $ASSET_NAME"
+}
+
+# Check if release is brand new and possibly still building
+check_new_release_status() {
+    # Extract release creation time
+    if command -v jq &> /dev/null; then
+        PUBLISHED_AT=$(echo "$RELEASE_DATA" | jq -r '.published_at')
+    else
+        PUBLISHED_AT=$(echo "$RELEASE_DATA" | grep -o '"published_at": "[^"]*' | cut -d'"' -f4)
+    fi
+
+    if [[ -z "$PUBLISHED_AT" ]]; then
+        return
+    fi
+
+    # Convert to Unix timestamp (requires date command with -d flag, available on Linux)
+    if command -v date &> /dev/null; then
+        PUBLISHED_TIMESTAMP=$(date -d "$PUBLISHED_AT" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$PUBLISHED_AT" +%s 2>/dev/null)
+        CURRENT_TIMESTAMP=$(date +%s)
+        
+        if [[ -n "$PUBLISHED_TIMESTAMP" && -n "$CURRENT_TIMESTAMP" ]]; then
+            AGE_MINUTES=$(( (CURRENT_TIMESTAMP - PUBLISHED_TIMESTAMP) / 60 ))
+            
+            if [[ $AGE_MINUTES -lt 15 ]]; then
+                echo
+                log_warning "This release was published ${AGE_MINUTES} minutes ago and assets are still being built"
+                log_warning "The GitHub Actions build pipeline is likely still running"
+                echo
+                echo "Please wait a few minutes and try again, or check:"
+                echo "  https://github.com/${REPO}/releases/tag/${LATEST_VERSION}"
+                echo "  https://github.com/${REPO}/actions"
+                echo
+                exit 1
+            fi
+        fi
+    fi
 }
 
 # Global flag to track if installation is needed
@@ -209,22 +248,28 @@ setup_service() {
         return
     fi
 
-    # Check if we have access to a terminal (even if stdin is piped)
-    if ! [ -t 0 ] && ! [ -c /dev/tty ]; then
-        # Truly non-interactive - no terminal available
+    # Check if stdin is connected to a terminal (not piped from curl)
+    if ! [ -t 0 ]; then
+        # Running via pipe (e.g., curl | bash) - skip interactive prompts
         if systemctl list-unit-files | grep -q "sathub-client.service"; then
-            log_info "Restarting existing systemd service with updated binary..."
+            log_info "Systemd service detected - restarting with updated binary..."
             if systemctl restart sathub-client 2>/dev/null; then
                 log_success "Service restarted successfully"
             else
-                log_warning "Failed to restart service (you may need to restart it manually)"
+                log_warning "Failed to restart service, you may need to run: sudo systemctl restart sathub-client"
             fi
+            echo
+            echo "To reconfigure service settings, run:"
+            echo "  sudo sathub-client install-service"
         else
-            log_info "Run 'sudo sathub-client install-service' to set up automatic startup"
+            echo
+            log_info "To set up automatic startup with systemd, run:"
+            echo "  sudo sathub-client install-service"
         fi
         return
     fi
 
+    # Interactive mode - prompt user
     echo
     echo -e "${YELLOW}Service Setup${NC}"
     
@@ -236,12 +281,7 @@ setup_service() {
         echo -n "Would you like to set up a systemd service for automatic startup? (y/N): "
     fi
     
-    # Read from /dev/tty if stdin is not a terminal (for piped execution like curl | bash)
-    if [ -t 0 ]; then
-        read -r response
-    else
-        read -r response < /dev/tty
-    fi
+    read -r response
 
     case $response in
         [Yy]|[Yy][Ee][Ss])
