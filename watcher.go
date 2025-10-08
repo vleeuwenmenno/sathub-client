@@ -458,8 +458,11 @@ func (fw *FileWatcher) processSatellitePass(dirPath string) error {
 	}
 
 	// Send health check
-	if err := fw.apiClient.StationHealth(); err != nil {
+	if healthResp, err := fw.apiClient.StationHealth(); err != nil {
 		fw.logger.Warn().Err(err).Msg("Failed to send health check")
+	} else {
+		// Update config with server settings
+		fw.config.UpdateFromServerSettings(healthResp.Settings)
 	}
 
 	return nil
