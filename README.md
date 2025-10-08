@@ -78,10 +78,12 @@ The SatHub client now includes built-in installation and management commands:
 
 If you need to update your station token later:
 
-````bash
+```bash
+# Choose "y" when asked if you want to update the configuration
 sudo sathub-client install-service
-# Choose "y" when asked if you want to update the token only
-```## Manual Installation
+```
+
+## Manual Installation
 
 ### Download Pre-built Binary
 
@@ -98,7 +100,7 @@ Download the appropriate binary for your platform from the [GitHub releases page
 ```bash
 cd client
 go build -o sathub-client
-````
+```
 
 This creates the `sathub-client` binary in the current directory.
 
