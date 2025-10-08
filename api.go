@@ -304,27 +304,42 @@ func (c *APIClient) UploadCADU(postID string, caduPath string) error {
 	return nil
 }
 
-// StationHealth sends a health check to update station last seen
-func (c *APIClient) StationHealth() error {
+// HealthResponse represents the response from a health check
+type HealthResponse struct {
+	Status    string                 `json:"status"`
+	Timestamp string                 `json:"timestamp"`
+	Settings  map[string]interface{} `json:"settings,omitempty"`
+}
+
+// StationHealth sends a health check to update station last seen and returns settings
+func (c *APIClient) StationHealth() (*HealthResponse, error) {
 	url := fmt.Sprintf("%s/api/stations/health", c.baseURL)
 
 	httpReq, err := http.NewRequest("POST", url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Authorization", fmt.Sprintf("Station %s", c.stationToken))
 
 	resp, err := c.httpClient.Do(httpReq)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("health check failed with status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("health check failed with status %d: %s", resp.StatusCode, string(body))
 	}
 
-	return nil
+	var healthResp struct {
+		Data HealthResponse `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&healthResp); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &healthResp.Data, nil
 }

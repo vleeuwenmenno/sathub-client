@@ -171,10 +171,12 @@ func runClient() error {
 
 	// Test API connection with health check
 	logger.Info().Msg("Testing API connection...")
-	if err := apiClient.StationHealth(); err != nil {
+	if healthResp, err := apiClient.StationHealth(); err != nil {
 		logger.Warn().Err(err).Msg("Initial health check failed")
 	} else {
-		logger.Info().Msg("API connection successful")
+		// Update config with server settings
+		config.UpdateFromServerSettings(healthResp.Settings)
+		logger.Info().Msg("Applied server settings to configuration")
 	}
 
 	// Create file watcher
@@ -206,9 +208,11 @@ func runClient() error {
 			return nil
 
 		case <-ticker.C:
-			if err := apiClient.StationHealth(); err != nil {
+			if healthResp, err := apiClient.StationHealth(); err != nil {
 				logger.Warn().Err(err).Msg("Health check failed")
 			} else {
+				// Update config with server settings
+				config.UpdateFromServerSettings(healthResp.Settings)
 				logger.Info().Msg("Health check successful")
 			}
 		}
