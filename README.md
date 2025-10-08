@@ -19,27 +19,32 @@ A standalone binary that monitors directories for satellite data from sathub and
 
 The easiest way to get started is with the built-in installation commands that handle everything automatically:
 
-### 1. Download and Install
+### Quick Setup
 
-Download the binary and install it system-wide in one command:
+1. Create an account on [sathub.de](https://sathub.de)
+2. Create a ground station and note your **Station API Token**
+3. Install the client:
+
+**Linux/macOS (Easiest - One-line install):**
 
 ```bash
-# Download the binary for your platform
-# Linux x86_64:
-wget https://github.com/vleeuwenmenno/sathub/releases/latest/download/sathub-client-linux-amd64
-chmod +x sathub-client-linux-amd64
-sudo ./sathub-client-linux-amd64 install
-
-# Linux ARM64 (Raspberry Pi):
-wget https://github.com/vleeuwenmenno/sathub/releases/latest/download/sathub-client-linux-arm64
-chmod +x sathub-client-linux-arm64
-sudo ./sathub-client-linux-arm64 install
+curl -sSL https://api.sathub.de/install | sudo bash
 ```
 
-The installer automatically:
-- Checks if you're upgrading from an older version
-- Copies the binary to `/usr/bin/sathub-client`
-- Sets proper executable permissions
+**Manual Download:**
+
+Download the client for your platform from [Releases](https://github.com/vleeuwenmenno/sathub-client/releases) and run:
+
+```bash
+# Linux/macOS - make executable first
+chmod +x sathub-client-*
+./sathub-client-* --token YOUR_STATION_TOKEN --watch /path/to/your/images
+
+# Windows
+sathub-client-windows-amd64.exe --token YOUR_STATION_TOKEN --watch C:\path\to\your\images
+```
+
+The client will monitor the specified directory and automatically upload new satellite captures to your SatHub station.
 
 ### 2. Setup as System Service
 
@@ -52,7 +57,7 @@ sudo sathub-client install-service
 # The installer will:
 # - Create sathub user and directories
 # - Prompt for your station token
-# - Configure watch and processed directories  
+# - Configure watch and processed directories
 # - Enable and start the service automatically
 ```
 
@@ -62,18 +67,18 @@ sudo sathub-client install-service
 
 The SatHub client now includes built-in installation and management commands:
 
-| Command | Description |
-|---------|-------------|
-| `sathub-client` | Run the client normally (requires token and watch directory) |
-| `sathub-client install` | Install the binary to `/usr/bin/sathub-client` (requires sudo) |
+| Command                         | Description                                                     |
+| ------------------------------- | --------------------------------------------------------------- |
+| `sathub-client`                 | Run the client normally (requires token and watch directory)    |
+| `sathub-client install`         | Install the binary to `/usr/bin/sathub-client` (requires sudo)  |
 | `sathub-client install-service` | Setup systemd service with guided configuration (requires sudo) |
-| `sathub-client version` | Show version information |
+| `sathub-client version`         | Show version information                                        |
 
 ### Update Token
 
 If you need to update your station token later:
 
-```bash
+````bash
 sudo sathub-client install-service
 # Choose "y" when asked if you want to update the token only
 ```## Manual Installation
@@ -93,7 +98,7 @@ Download the appropriate binary for your platform from the [GitHub releases page
 ```bash
 cd client
 go build -o sathub-client
-```
+````
 
 This creates the `sathub-client` binary in the current directory.
 
@@ -107,21 +112,21 @@ The client supports both command-line arguments and environment variables. Comma
 sathub-client --help
 ```
 
-| Flag | Short | Default | Description |
-|------|-------|---------|-------------|
-| `--token` | `-t` | *required* | Station API token |
-| `--watch` | `-w` | *required* | Directory path to watch for new images |
-| `--api` | `-a` | `https://api.sathub.de` | SatHub API URL |
-| `--processed` | `-p` | `./processed` | Directory to move processed files |
-| `--verbose` | `-v` | `false` | Enable verbose (debug) logging |
+| Flag          | Short | Default                 | Description                            |
+| ------------- | ----- | ----------------------- | -------------------------------------- |
+| `--token`     | `-t`  | _required_              | Station API token                      |
+| `--watch`     | `-w`  | _required_              | Directory path to watch for new images |
+| `--api`       | `-a`  | `https://api.sathub.de` | SatHub API URL                         |
+| `--processed` | `-p`  | `./processed`           | Directory to move processed files      |
+| `--verbose`   | `-v`  | `false`                 | Enable verbose (debug) logging         |
 
 ### Environment Variables (Fallbacks)
 
-| Variable | Description |
-|----------|-------------|
-| `STATION_TOKEN` | Station authentication token (fallback for `--token`) |
-| `WATCH_PATHS` | Directory to monitor (fallback for `--watch`) |
-| `API_URL` | SatHub API base URL (fallback for `--api`) |
+| Variable        | Description                                                               |
+| --------------- | ------------------------------------------------------------------------- |
+| `STATION_TOKEN` | Station authentication token (fallback for `--token`)                     |
+| `WATCH_PATHS`   | Directory to monitor (fallback for `--watch`)                             |
+| `API_URL`       | SatHub API base URL (fallback for `--api`)                                |
 | `PROCESSED_DIR` | Directory to move processed satellite passes (fallback for `--processed`) |
 
 ## Data Format
@@ -129,12 +134,14 @@ sathub-client --help
 The client processes complete satellite pass directories from sathub output. Each directory should contain:
 
 ### Required Files:
+
 - `dataset.json` - Main metadata file with satellite information
 - At least one product directory (e.g., `MSU-MR/`, `MSU-MR (Filled)/`) containing:
   - `product.cbor` - Binary satellite data
   - Multiple `.png` images from the processed data
 
 ### Example Directory Structure:
+
 ```
 2025-09-26_13-01_meteor_m2-x_lrpt_137.9 MHz/
 ├── dataset.json          # Satellite metadata
@@ -157,24 +164,25 @@ The client extracts comprehensive satellite and dataset information from `datase
 {
   "timestamp": "2024-09-27T16:45:00Z",
   "satellite_name": "METEOR-M2",
-  "satellite": "METEOR-M2",     // Alternative field
-  "name": "METEOR-M2",          // Alternative field
+  "satellite": "METEOR-M2", // Alternative field
+  "name": "METEOR-M2", // Alternative field
   "norad": 40069,
   "frequency": 137.9,
   "modulation": "LRPT",
   "datasets": [
-    {"name": "MSU-MR", "type": "thermal"},
-    {"name": "MSU-MR (Filled)", "type": "thermal"}
+    { "name": "MSU-MR", "type": "thermal" },
+    { "name": "MSU-MR (Filled)", "type": "thermal" }
   ],
   "products": [
-    {"name": "MSU-MR-1", "description": "Thermal infrared"},
-    {"name": "MSU-MR-2", "description": "Near infrared"}
+    { "name": "MSU-MR-1", "description": "Thermal infrared" },
+    { "name": "MSU-MR-2", "description": "Near infrared" }
   ],
   "additional_metadata": "custom data"
 }
 ```
 
 **Extracted Information:**
+
 - Satellite name (with fallbacks: `satellite_name` → `satellite` → `name`)
 - Timestamp and NORAD ID
 - Frequency and modulation details
@@ -184,15 +192,6 @@ The client extracts comprehensive satellite and dataset information from `datase
 All PNG images from product directories are automatically uploaded as post images.
 
 ## Usage
-
-### Quick Start (With Built-in Installation)
-
-1. **Download and install** the binary using the built-in installer
-2. **Get your station token** from the SatHub web interface
-3. **Run the service installer** and enter your token when prompted
-4. **Configure sathub** to output to `/home/sathub/data` (or your configured directory)
-
-The service will automatically start monitoring and uploading satellite data!
 
 ### Command-Line Usage
 
@@ -250,6 +249,7 @@ sudo sathub-client install-service
 ```
 
 This will:
+
 - Create the systemd service file automatically
 - Create a `sathub` user and required directories
 - Prompt for your station token and configuration
@@ -281,47 +281,6 @@ Then enable and start manually:
 sudo systemctl enable sathub-client
 sudo systemctl start sathub-client
 sudo systemctl status sathub-client
-```
-
-## Directory Processing
-
-1. **Directory Detection**: New satellite pass directories are detected
-2. **Processing Delay**: Client waits for configured delay to allow sathub to complete
-3. **Validation**: Checks for required files (`dataset.json`, product directories with `product.cbor`)
-4. **Data Processing**: Parses metadata, reads CBOR data, collects all PNG images
-5. **API Upload**: Creates post with metadata and CBOR, uploads all images
-6. **Health Check**: Updates station status
-7. **Archiving**: Moves processed directory to avoid re-processing
-
-## Logging
-
-The client uses structured logging with zerolog for better debugging and monitoring:
-
-**Normal logging (default):**
-```
-2024-09-29T15:30:00Z INF Starting SatHub Data Client component=client version=v1.0.0 api_url=https://api.sathub.de
-2024-09-29T15:30:00Z INF Testing API connection... component=client
-2024-09-29T15:30:01Z INF API connection successful component=client
-2024-09-29T15:30:01Z INF Watching directory component=watcher path=/path/to/data
-2024-09-29T15:30:01Z INF SatHub Data Client started successfully component=client
-2024-09-29T15:35:00Z INF Detected new satellite pass directory component=watcher dir=/path/to/2024-09-29_15-30_meteor-m2_lrpt
-2024-09-29T15:45:00Z INF Processing satellite pass component=watcher dir=/path/to/2024-09-29_15-30_meteor-m2_lrpt
-2024-09-29T15:45:01Z INF Parsed satellite name component=watcher satellite=METEOR-M2
-2024-09-29T15:45:02Z INF Selected product for upload component=watcher product=MSU-MR images=6
-2024-09-29T15:45:03Z INF Created post component=watcher post_id=123 satellite=METEOR-M2
-2024-09-29T15:45:05Z INF Uploaded image component=watcher image=MSU-MR-1.png post_id=123
-```
-
-**Verbose logging (--verbose flag):**
-```
-2024-09-29T15:45:01Z DBG Parsed timestamp component=watcher timestamp=2024-09-29T15:30:00Z
-2024-09-29T15:45:01Z DBG NORAD ID component=watcher norad_id=40069
-2024-09-29T15:45:01Z DBG Frequency component=watcher frequency_mhz=137.9
-2024-09-29T15:45:01Z DBG Modulation component=watcher modulation=LRPT
-2024-09-29T15:45:01Z DBG Found datasets component=watcher count=2
-2024-09-29T15:45:01Z DBG Dataset component=watcher index=1 name=MSU-MR
-2024-09-29T15:45:01Z DBG Found CBOR data component=watcher product=MSU-MR bytes=245760
-2024-09-29T15:45:02Z DBG Found images component=watcher product=MSU-MR count=6
 ```
 
 ## Error Handling
