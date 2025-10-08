@@ -1,3 +1,6 @@
+# Possible data, such as test data when debugging
 data
-bin
 
+# Possible binaries
+bin
+sathub-client
