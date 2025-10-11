@@ -1,0 +1,18 @@
+# Debug Configuration Template
+# Copy this file to config.debug.yaml and update with your values
+
+station:
+  token: "YOUR_STATION_TOKEN_HERE"
+  api_url: "https://api.sathub.local:9999"
+
+paths:
+  watch: "./data"
+  processed: "./data/processed"
+
+intervals:
+  health_check: 60  # seconds
+  process_delay: 5   # seconds
+
+options:
+  insecure: true   # Allow self-signed certificates (for local dev)
+  verbose: true    # Enable debug logging

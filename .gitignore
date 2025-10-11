@@ -5,3 +5,6 @@ data
 bin
 sathub-client
 __debug_bin**
+
+# Debug configuration with sensitive tokens
+config.debug.yaml
