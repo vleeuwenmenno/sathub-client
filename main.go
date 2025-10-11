@@ -427,13 +427,27 @@ func installService() error {
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
 
-	fmt.Println("Service installed successfully!")
+	// Start or restart the service
+	var startCmd *exec.Cmd
 	if serviceExists {
-		fmt.Println("Use 'systemctl --user restart sathub-client' to restart with new configuration")
+		fmt.Println("Restarting service with new configuration...")
+		startCmd = exec.Command("systemctl", "--user", "restart", "sathub-client")
 	} else {
-		fmt.Println("Use 'systemctl --user start sathub-client' to start the service")
+		fmt.Println("Starting service...")
+		startCmd = exec.Command("systemctl", "--user", "start", "sathub-client")
 	}
+
+	if err := startCmd.Run(); err != nil {
+		fmt.Printf("Warning: Failed to start service: %v\n", err)
+		fmt.Println("You can manually start it with: systemctl --user start sathub-client")
+	} else {
+		fmt.Println("✓ Service started successfully!")
+	}
+
+	fmt.Println()
+	fmt.Println("Service installed and running!")
 	fmt.Println("Use 'systemctl --user status sathub-client' to check service status")
+	fmt.Println("Use 'journalctl --user -u sathub-client -f' to view logs")
 	fmt.Println()
 	fmt.Println("To enable the service to start automatically after reboot (even when not logged in):")
 	fmt.Println("  loginctl enable-linger $USER")
