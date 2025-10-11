@@ -8,6 +8,7 @@ require (
 	github.com/fxamacker/cbor/v2 v2.9.0
 	github.com/rs/zerolog v1.31.0
 	github.com/spf13/cobra v1.8.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

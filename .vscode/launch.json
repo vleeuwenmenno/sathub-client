@@ -5,24 +5,13 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Launch SatHub Client",
+      "name": "Launch SatHub Client (Debug Config)",
       "type": "go",
       "request": "launch",
       "mode": "auto",
       "program": "${workspaceFolder}",
       "cwd": "${workspaceFolder}",
-      "args": ["--insecure"],
-      "env": {
-        "STATION_TOKEN": "ef2480ca80d65de114fa70a044f26e22",
-        "API_URL": "https://api.sathub.local:9999",
-        "WATCH_PATHS": "./data",
-        "PROCESSED_DIR": "./data/processed",
-        "LOG_LEVEL": "info",
-        "RETRY_COUNT": "3",
-        "RETRY_DELAY": "5",
-        "PROCESS_DELAY": "5",
-        "HEALTH_CHECK_INTERVAL": "60"
-      }
+      "args": ["--config", "${workspaceFolder}/config.debug.yaml"]
     }
   ]
 }
