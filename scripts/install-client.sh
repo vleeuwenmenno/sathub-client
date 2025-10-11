@@ -281,9 +281,9 @@ setup_service() {
     if ! [ -t 0 ]; then
         # Running via pipe (e.g., curl | bash) - skip interactive prompts
         # Check if service exists for the real user
-        if XDG_RUNTIME_DIR=/run/user/$real_uid run_as_user systemctl --user list-unit-files 2>/dev/null | grep -q "sathub-client.service"; then
+        if run_as_user systemctl --user list-unit-files 2>/dev/null | grep -q "sathub-client.service"; then
             log_info "Systemd user service detected for user '$real_user' - restarting with updated binary..."
-            if XDG_RUNTIME_DIR=/run/user/$real_uid run_as_user systemctl --user restart sathub-client 2>/dev/null; then
+            if run_as_user systemctl --user restart sathub-client 2>/dev/null; then
                 log_success "Service restarted successfully"
             else
                 log_warning "Failed to restart service, run: systemctl --user restart sathub-client"
@@ -304,7 +304,7 @@ setup_service() {
     echo -e "${YELLOW}Service Setup${NC}"
     
     # Check if service already exists for the real user
-    if XDG_RUNTIME_DIR=/run/user/$real_uid run_as_user systemctl --user list-unit-files 2>/dev/null | grep -q "sathub-client.service"; then
+    if run_as_user systemctl --user list-unit-files 2>/dev/null | grep -q "sathub-client.service"; then
         echo "Systemd user service is already installed for user '$real_user'."
         echo -n "Would you like to reconfigure it? (y/N): "
     else
