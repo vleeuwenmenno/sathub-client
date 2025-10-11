@@ -4,3 +4,4 @@ data
 # Possible binaries
 bin
 sathub-client
+__debug_bin**
