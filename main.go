@@ -383,14 +383,20 @@ func installService() error {
 			if response == "n" || response == "no" {
 				fmt.Println("Keeping existing configuration.")
 
-				// Reload systemd (in case binary was updated)
-				if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-					return fmt.Errorf("failed to reload systemd: %w", err)
+				// Reload systemd user daemon (in case binary was updated)
+				if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+					fmt.Printf("Warning: failed to reload systemd: %v\n", err)
 				}
 
-				fmt.Println("Service configuration unchanged.")
-				fmt.Println("Use 'sudo systemctl restart sathub-client' to restart the service")
-				fmt.Println("Use 'sudo systemctl status sathub-client' to check service status")
+				// Try to restart the service
+				if err := exec.Command("systemctl", "--user", "restart", "sathub-client").Run(); err != nil {
+					fmt.Printf("Warning: failed to restart service: %v\n", err)
+					fmt.Println("You may need to run: systemctl --user restart sathub-client")
+				} else {
+					fmt.Println("Service restarted successfully with updated binary.")
+				}
+
+				fmt.Println("Use 'systemctl --user status sathub-client' to check service status")
 				return nil
 			}
 			fmt.Println()

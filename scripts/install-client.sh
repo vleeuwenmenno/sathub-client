@@ -255,11 +255,12 @@ get_real_uid() {
     id -u "$real_user"
 }
 
-# Run command as the real user
+# Run command as the real user with proper environment
 run_as_user() {
     local real_user=$(get_real_user)
+    local real_uid=$(get_real_uid)
     if [[ -n "$SUDO_USER" ]]; then
-        sudo -u "$real_user" "$@"
+        sudo -u "$real_user" XDG_RUNTIME_DIR=/run/user/$real_uid "$@"
     else
         "$@"
     fi
