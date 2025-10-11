@@ -240,6 +240,32 @@ download_and_install() {
     log_success "SatHub client ${LATEST_VERSION} installed successfully!"
 }
 
+# Get the real user (when running with sudo)
+get_real_user() {
+    if [[ -n "$SUDO_USER" ]]; then
+        echo "$SUDO_USER"
+    else
+        echo "$USER"
+    fi
+}
+
+# Get the real user's ID (when running with sudo)
+get_real_uid() {
+    local real_user=$(get_real_user)
+    id -u "$real_user"
+}
+
+# Run command as the real user with proper environment
+run_as_user() {
+    local real_user=$(get_real_user)
+    local real_uid=$(get_real_uid)
+    if [[ -n "$SUDO_USER" ]]; then
+        sudo -u "$real_user" XDG_RUNTIME_DIR=/run/user/$real_uid "$@"
+    else
+        "$@"
+    fi
+}
+
 # Setup systemd service
 setup_service() {
     # Check if running on Linux with systemd
@@ -248,23 +274,27 @@ setup_service() {
         return
     fi
 
+    local real_user=$(get_real_user)
+    local real_uid=$(get_real_uid)
+
     # Check if stdin is connected to a terminal (not piped from curl)
     if ! [ -t 0 ]; then
         # Running via pipe (e.g., curl | bash) - skip interactive prompts
-        if systemctl list-unit-files | grep -q "sathub-client.service"; then
-            log_info "Systemd service detected - restarting with updated binary..."
-            if systemctl restart sathub-client 2>/dev/null; then
+        # Check if service exists for the real user
+        if run_as_user systemctl --user list-unit-files 2>/dev/null | grep -q "sathub-client.service"; then
+            log_info "Systemd user service detected for user '$real_user' - restarting with updated binary..."
+            if run_as_user systemctl --user restart sathub-client 2>/dev/null; then
                 log_success "Service restarted successfully"
             else
-                log_warning "Failed to restart service, you may need to run: sudo systemctl restart sathub-client"
+                log_warning "Failed to restart service, run: systemctl --user restart sathub-client"
             fi
             echo
             echo "To reconfigure service settings, run:"
-            echo "  sudo sathub-client install-service"
+            echo "  sathub-client install-service"
         else
             echo
             log_info "To set up automatic startup with systemd, run:"
-            echo "  sudo sathub-client install-service"
+            echo "  sathub-client install-service"
         fi
         return
     fi
@@ -273,38 +303,42 @@ setup_service() {
     echo
     echo -e "${YELLOW}Service Setup${NC}"
     
-    # Check if service already exists
-    if systemctl list-unit-files | grep -q "sathub-client.service"; then
-        echo "Systemd service is already installed."
+    # Check if service already exists for the real user
+    if run_as_user systemctl --user list-unit-files 2>/dev/null | grep -q "sathub-client.service"; then
+        echo "Systemd user service is already installed for user '$real_user'."
         echo -n "Would you like to reconfigure it? (y/N): "
     else
-        echo -n "Would you like to set up a systemd service for automatic startup? (y/N): "
+        echo -n "Would you like to set up a systemd user service for user '$real_user'? (y/N): "
     fi
     
     read -r response
 
     case $response in
         [Yy]|[Yy][Ee][Ss])
-            log_info "Setting up systemd service..."
+            log_info "Setting up systemd user service for user '$real_user'..."
 
-            if ! "$INSTALL_PATH" install-service; then
-                log_error "Failed to setup systemd service"
+            # Run install-service as the real user
+            if ! run_as_user "$INSTALL_PATH" install-service; then
+                log_error "Failed to setup systemd user service"
                 exit 1
             fi
 
-            log_success "Systemd service setup complete!"
+            log_success "Systemd user service setup complete!"
             echo
-            echo "Service commands:"
-            echo "  Start:  sudo systemctl start sathub-client"
-            echo "  Stop:   sudo systemctl stop sathub-client"
-            echo "  Status: sudo systemctl status sathub-client"
-            echo "  Logs:   sudo journalctl -u sathub-client -f"
+            echo "Service commands (run as '$real_user'):"
+            echo "  Start:  systemctl --user start sathub-client"
+            echo "  Stop:   systemctl --user stop sathub-client"
+            echo "  Status: systemctl --user status sathub-client"
+            echo "  Logs:   journalctl --user -u sathub-client -f"
+            echo
+            echo "To enable automatic start even when not logged in:"
+            echo "  loginctl enable-linger $real_user"
             ;;
         *)
             log_info "Skipping service setup"
             echo
             echo "You can manually setup the service later with:"
-            echo "  sudo sathub-client install-service"
+            echo "  sathub-client install-service"
             ;;
     esac
 }

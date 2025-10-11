@@ -46,33 +46,33 @@ sathub-client-windows-amd64.exe --token YOUR_STATION_TOKEN --watch C:\path\to\yo
 
 The client will monitor the specified directory and automatically upload new satellite captures to your SatHub station.
 
-### 2. Setup as System Service
+### 2. Setup as User Service
 
-Configure and start the systemd service with guided setup:
+Configure and start the systemd user service with guided setup:
 
 ```bash
-# Setup systemd service (interactive configuration)
-sudo sathub-client install-service
+# Setup systemd user service (interactive configuration - no sudo needed!)
+sathub-client install-service
 
 # The installer will:
-# - Create sathub user and directories
+# - Create required directories in your home directory
 # - Prompt for your station token
 # - Configure watch and processed directories
 # - Enable and start the service automatically
 ```
 
-**That's it!** Your SatHub client is now installed and running as a system service.
+**That's it!** Your SatHub client is now installed and running as a user service.
 
 ### Available Commands
 
 The SatHub client now includes built-in installation and management commands:
 
-| Command                         | Description                                                     |
-| ------------------------------- | --------------------------------------------------------------- |
-| `sathub-client`                 | Run the client normally (requires token and watch directory)    |
-| `sathub-client install`         | Install the binary to `/usr/bin/sathub-client` (requires sudo)  |
-| `sathub-client install-service` | Setup systemd service with guided configuration (requires sudo) |
-| `sathub-client version`         | Show version information                                        |
+| Command                         | Description                                                    |
+| ------------------------------- | -------------------------------------------------------------- |
+| `sathub-client`                 | Run the client normally (requires token and watch directory)   |
+| `sathub-client install`         | Install the binary to `/usr/bin/sathub-client` (requires sudo) |
+| `sathub-client install-service` | Setup systemd user service with guided configuration           |
+| `sathub-client version`         | Show version information                                       |
 
 ### Update Token
 
@@ -80,7 +80,7 @@ If you need to update your station token later:
 
 ```bash
 # Choose "y" when asked if you want to update the configuration
-sudo sathub-client install-service
+sathub-client install-service
 ```
 
 ## Manual Installation
@@ -241,25 +241,44 @@ export API_URL=https://api.sathub.de
 ./sathub-client --watch /different/path --verbose
 ```
 
-### Systemd Service (Linux)
+### Systemd User Service (Linux)
 
 **Recommended**: Use the built-in service installer:
 
 ```bash
-# Install binary and setup service automatically
-sudo sathub-client install-service
+# Install binary and setup user service automatically (no sudo required!)
+sathub-client install-service
 ```
 
 This will:
 
-- Create the systemd service file automatically
-- Create a `sathub` user and required directories
+- Create the systemd user service file automatically
+- Create required directories in your home directory
 - Prompt for your station token and configuration
 - Enable and start the service
 
+**Managing the service:**
+
+```bash
+# Start the service
+systemctl --user start sathub-client
+
+# Stop the service
+systemctl --user stop sathub-client
+
+# Check service status
+systemctl --user status sathub-client
+
+# View logs
+journalctl --user -u sathub-client -f
+
+# Enable automatic start even when not logged in
+loginctl enable-linger $USER
+```
+
 **Manual service configuration** (if you prefer manual setup):
 
-Create `/etc/systemd/system/sathub-client.service`:
+Create `~/.config/systemd/user/sathub-client.service`:
 
 ```ini
 [Unit]
@@ -268,21 +287,21 @@ After=network.target
 
 [Service]
 Type=simple
-User=sathub
-ExecStart=/usr/bin/sathub-client --token your_token_here --watch /home/sathub/data --api https://api.sathub.de --processed /home/sathub/processed
+ExecStart=/usr/bin/sathub-client --token your_token_here --watch /home/yourusername/sathub/data --api https://api.sathub.de --processed /home/yourusername/sathub/processed
 Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 ```
 
 Then enable and start manually:
 
 ```bash
-sudo systemctl enable sathub-client
-sudo systemctl start sathub-client
-sudo systemctl status sathub-client
+systemctl --user daemon-reload
+systemctl --user enable sathub-client
+systemctl --user start sathub-client
+systemctl --user status sathub-client
 ```
 
 ## Error Handling

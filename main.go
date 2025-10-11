@@ -83,10 +83,23 @@ var installCmd = &cobra.Command{
 
 var installServiceCmd = &cobra.Command{
 	Use:   "install-service",
-	Short: "Install and configure systemd service",
-	Long:  "Install systemd service for sathub-client and configure station token.",
-	RunE: func(cmd *cobra.Command, args []string) error {
-		return installService()
+	Short: "Install and configure systemd user service",
+	Long:  "Install systemd user service for sathub-client and configure station token. Runs as the current user without requiring root privileges.",
+	Run: func(cmd *cobra.Command, args []string) {
+		if err := installService(); err != nil {
+			logger.Fatal().Err(err).Msg("Failed to install service")
+		}
+	},
+}
+
+var uninstallServiceCmd = &cobra.Command{
+	Use:   "uninstall-service",
+	Short: "Uninstall systemd user service",
+	Long:  "Stop and remove the systemd user service for sathub-client. This will stop the service and remove its configuration.",
+	Run: func(cmd *cobra.Command, args []string) {
+		if err := uninstallService(); err != nil {
+			logger.Fatal().Err(err).Msg("Failed to uninstall service")
+		}
 	},
 }
 
@@ -103,6 +116,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(installCmd)
 	rootCmd.AddCommand(installServiceCmd)
+	rootCmd.AddCommand(uninstallServiceCmd)
 	rootCmd.AddCommand(updateCmd)
 
 	// Set defaults from environment variables
@@ -319,19 +333,31 @@ func updateClient() error {
 	return nil
 }
 
-// installService creates and configures the systemd service
+// installService creates and configures the systemd user service
 func installService() error {
-	const servicePath = "/etc/systemd/system/sathub-client.service"
-
-	// Check if we're running as root
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("service installation requires root privileges. Please run with sudo")
+	// Get current user's home directory
+	currentUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
 	}
 
-	// Check if binary is installed in /usr/bin
+	// Use user systemd directory
+	systemdUserDir := filepath.Join(currentUser.HomeDir, ".config", "systemd", "user")
+	servicePath := filepath.Join(systemdUserDir, "sathub-client.service")
+
+	// Create systemd user directory if it doesn't exist
+	if err := os.MkdirAll(systemdUserDir, 0755); err != nil {
+		return fmt.Errorf("failed to create systemd user directory: %w", err)
+	}
+
+	// Check if binary is installed in /usr/bin or ~/.local/bin
 	binaryPath := "/usr/bin/sathub-client"
 	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
-		return fmt.Errorf("sathub-client is not installed in /usr/bin. Please run 'sathub-client install' first")
+		// Try local binary path
+		binaryPath = filepath.Join(currentUser.HomeDir, ".local", "bin", "sathub-client")
+		if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
+			return fmt.Errorf("sathub-client is not installed in /usr/bin or ~/.local/bin")
+		}
 	}
 
 	// Check if service already exists and extract existing configuration
@@ -361,14 +387,20 @@ func installService() error {
 			if response == "n" || response == "no" {
 				fmt.Println("Keeping existing configuration.")
 
-				// Reload systemd (in case binary was updated)
-				if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
-					return fmt.Errorf("failed to reload systemd: %w", err)
+				// Reload systemd user daemon (in case binary was updated)
+				if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+					fmt.Printf("Warning: failed to reload systemd: %v\n", err)
 				}
 
-				fmt.Println("Service configuration unchanged.")
-				fmt.Println("Use 'sudo systemctl restart sathub-client' to restart the service")
-				fmt.Println("Use 'sudo systemctl status sathub-client' to check service status")
+				// Try to restart the service
+				if err := exec.Command("systemctl", "--user", "restart", "sathub-client").Run(); err != nil {
+					fmt.Printf("Warning: failed to restart service: %v\n", err)
+					fmt.Println("You may need to run: systemctl --user restart sathub-client")
+				} else {
+					fmt.Println("Service restarted successfully with updated binary.")
+				}
+
+				fmt.Println("Use 'systemctl --user status sathub-client' to check service status")
 				return nil
 			}
 			fmt.Println()
@@ -376,54 +408,112 @@ func installService() error {
 	}
 
 	// Get configuration from user (with existing values as defaults)
-	config, err := getServiceConfiguration(existingConfig)
+	config, err := getServiceConfiguration(existingConfig, currentUser.HomeDir)
 	if err != nil {
 		return fmt.Errorf("failed to get service configuration: %w", err)
 	}
 
-	// Create sathub user if it doesn't exist
-	if err := createSatHubUser(); err != nil {
-		return fmt.Errorf("failed to create sathub user: %w", err)
-	}
-
 	// Generate service content
-	serviceContent := generateServiceFile(config)
+	serviceContent := generateServiceFile(config, binaryPath)
 
 	// Write service file
 	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
 		return fmt.Errorf("failed to write service file: %w", err)
 	}
 
-	// Create directories and set permissions
-	homeDir := "/home/sathub"
-	dataDir := filepath.Join(homeDir, "data")
-	processedDir := filepath.Join(homeDir, "processed")
-
-	for _, dir := range []string{homeDir, dataDir, processedDir} {
+	// Create directories if they don't exist
+	for _, dir := range []string{config.WatchPath, config.ProcessedDir} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
-		if err := exec.Command("chown", "sathub:sathub", dir).Run(); err != nil {
-			return fmt.Errorf("failed to set ownership for %s: %w", dir, err)
-		}
 	}
 
-	// Reload systemd and enable service
-	if err := exec.Command("systemctl", "daemon-reload").Run(); err != nil {
+	// Reload user systemd and enable service
+	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
 		return fmt.Errorf("failed to reload systemd: %w", err)
 	}
 
-	if err := exec.Command("systemctl", "enable", "sathub-client").Run(); err != nil {
+	if err := exec.Command("systemctl", "--user", "enable", "sathub-client").Run(); err != nil {
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
 
-	fmt.Println("Service installed successfully!")
+	// Start or restart the service
+	var startCmd *exec.Cmd
 	if serviceExists {
-		fmt.Println("Use 'sudo systemctl restart sathub-client' to restart with new configuration")
+		fmt.Println("Restarting service with new configuration...")
+		startCmd = exec.Command("systemctl", "--user", "restart", "sathub-client")
 	} else {
-		fmt.Println("Use 'sudo systemctl start sathub-client' to start the service")
+		fmt.Println("Starting service...")
+		startCmd = exec.Command("systemctl", "--user", "start", "sathub-client")
 	}
-	fmt.Println("Use 'sudo systemctl status sathub-client' to check service status")
+
+	if err := startCmd.Run(); err != nil {
+		fmt.Printf("Warning: Failed to start service: %v\n", err)
+		fmt.Println("You can manually start it with: systemctl --user start sathub-client")
+	} else {
+		fmt.Println("✓ Service started successfully!")
+	}
+
+	fmt.Println()
+	fmt.Println("Service installed and running!")
+	fmt.Println("Use 'systemctl --user status sathub-client' to check service status")
+	fmt.Println("Use 'journalctl --user -u sathub-client -f' to view logs")
+	fmt.Println()
+	fmt.Println("To enable the service to start automatically after reboot (even when not logged in):")
+	fmt.Println("  loginctl enable-linger $USER")
+
+	return nil
+}
+
+// uninstallService stops and removes the systemd user service
+func uninstallService() error {
+	// Get current user's home directory
+	currentUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
+
+	// Use user systemd directory
+	systemdUserDir := filepath.Join(currentUser.HomeDir, ".config", "systemd", "user")
+	servicePath := filepath.Join(systemdUserDir, "sathub-client.service")
+
+	// Check if service exists
+	if _, err := os.Stat(servicePath); os.IsNotExist(err) {
+		fmt.Println("Service is not installed.")
+		return nil
+	}
+
+	fmt.Println("Uninstalling sathub-client service...")
+
+	// Stop the service (ignore errors if it's not running)
+	fmt.Println("Stopping service...")
+	exec.Command("systemctl", "--user", "stop", "sathub-client").Run()
+
+	// Disable the service (ignore errors if it's not enabled)
+	fmt.Println("Disabling service...")
+	exec.Command("systemctl", "--user", "disable", "sathub-client").Run()
+
+	// Remove the service file
+	fmt.Println("Removing service file...")
+	if err := os.Remove(servicePath); err != nil {
+		return fmt.Errorf("failed to remove service file: %w", err)
+	}
+
+	// Reload systemd
+	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
+		return fmt.Errorf("failed to reload systemd: %w", err)
+	}
+
+	// Reset failed state if any
+	exec.Command("systemctl", "--user", "reset-failed").Run()
+
+	fmt.Println()
+	fmt.Println("Service uninstalled successfully!")
+	fmt.Println()
+	fmt.Println("Note: This does not remove:")
+	fmt.Println("  - The sathub-client binary")
+	fmt.Println("  - Your data directories")
+	fmt.Println("  - Any configuration files")
 
 	return nil
 }
@@ -482,15 +572,15 @@ type ServiceConfig struct {
 
 // getServiceConfiguration prompts user for service configuration
 // If existingConfig is provided, it will be used as default values
-func getServiceConfiguration(existingConfig *ServiceConfig) (*ServiceConfig, error) {
+func getServiceConfiguration(existingConfig *ServiceConfig, homeDir string) (*ServiceConfig, error) {
 	reader := bufio.NewReader(os.Stdin)
 	config := &ServiceConfig{}
 
-	// Set defaults
+	// Set defaults based on user's home directory
 	defaultToken := ""
-	defaultWatchPath := "/home/sathub/data"
+	defaultWatchPath := filepath.Join(homeDir, "sathub", "data")
 	defaultAPIURL := "https://api.sathub.de"
-	defaultProcessedDir := "/home/sathub/processed"
+	defaultProcessedDir := filepath.Join(homeDir, "sathub", "processed")
 
 	// Use existing values as defaults if available
 	if existingConfig != nil {
@@ -550,38 +640,21 @@ func getServiceConfiguration(existingConfig *ServiceConfig) (*ServiceConfig, err
 	return config, nil
 }
 
-// createSatHubUser creates the sathub system user if it doesn't exist
-func createSatHubUser() error {
-	// Check if user exists
-	if _, err := user.Lookup("sathub"); err == nil {
-		return nil // User already exists
-	}
-
-	// Create system user
-	cmd := exec.Command("useradd", "-r", "-s", "/bin/false", "-d", "/home/sathub", "-m", "sathub")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to create sathub user: %w", err)
-	}
-
-	return nil
-}
-
-// generateServiceFile generates the systemd service file content
-func generateServiceFile(config *ServiceConfig) string {
+// generateServiceFile generates the systemd user service file content
+func generateServiceFile(config *ServiceConfig, binaryPath string) string {
 	return fmt.Sprintf(`[Unit]
 Description=SatHub Data Client
 After=network.target
 
 [Service]
 Type=simple
-User=sathub
-ExecStart=/usr/bin/sathub-client --token %s --watch %s --api %s --processed %s
+ExecStart=%s --token %s --watch %s --api %s --processed %s
 Restart=always
 RestartSec=10
 
 [Install]
-WantedBy=multi-user.target
-`, config.Token, config.WatchPath, config.APIURL, config.ProcessedDir)
+WantedBy=default.target
+`, binaryPath, config.Token, config.WatchPath, config.APIURL, config.ProcessedDir)
 }
 
 // copyFile copies a file from src to dst
