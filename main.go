@@ -253,13 +253,19 @@ func runClient() error {
 			return fmt.Errorf("restart requested")
 
 		case <-ticker.C:
-			if healthResp, err := apiClient.StationHealth(); err != nil {
-				logger.Warn().Err(err).Msg("Health check failed")
-			} else {
-				// Update config with server settings
-				watcherConfig.UpdateFromServerSettings(healthResp.Settings)
-				logger.Info().Msg("Health check successful")
+			healthResp, err := apiClient.StationHealth()
+			if err != nil {
+				// Retry once after a brief delay
+				time.Sleep(1 * time.Second)
+				healthResp, err = apiClient.StationHealth()
+				if err != nil {
+					logger.Warn().Err(err).Msg("Health check failed after retry")
+					continue
+				}
 			}
+			// Update config with server settings
+			watcherConfig.UpdateFromServerSettings(healthResp.Settings)
+			logger.Info().Msg("Health check successful")
 		}
 	}
 }
