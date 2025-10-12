@@ -84,8 +84,8 @@ var versionCmd = &cobra.Command{
 
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install sathub-client to /usr/bin",
-	Long:  "Install sathub-client to /usr/bin. Checks if current version is newer than installed version.",
+	Short: "Install sathub-client to ~/.local/bin",
+	Long:  "Install sathub-client to ~/.local/bin. Checks if current version is newer than installed version.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return installBinary()
 	},
@@ -264,13 +264,19 @@ func runClient() error {
 	}
 }
 
-// installBinary installs the current binary to /usr/bin/sathub-client
+// installBinary installs the current binary to ~/.local/bin/sathub-client
 func installBinary() error {
-	const targetPath = "/usr/bin/sathub-client"
+	// Get current user
+	currentUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
 
-	// Check if we're running as root
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("installation requires root privileges. Please run with sudo")
+	targetPath := filepath.Join(currentUser.HomeDir, ".local", "bin", "sathub-client")
+
+	// Create the install directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return fmt.Errorf("failed to create install directory: %w", err)
 	}
 
 	// Get current executable path
@@ -321,11 +327,6 @@ func installBinary() error {
 // updateClient downloads and runs the latest installation script
 func updateClient() error {
 	const installURL = "https://api.sathub.de/install"
-
-	// Check if we're running as root
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("update requires root privileges. Please run with sudo")
-	}
 
 	fmt.Printf("Downloading latest version from %s...\n", installURL)
 	fmt.Println()

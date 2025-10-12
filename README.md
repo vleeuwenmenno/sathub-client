@@ -1,18 +1,18 @@
 # SatHub Data Client
 
-A standalone binary that monitors directories for satellite data from sathub and automatically pushes complete satellite passes to the SatHub API.
+A standalone binary that monitors directories for satellite data from SatDump and automatically pushes complete satellite passes to the SatHub API.
 
 ## Features
 
 - **One-Command Installation**: Built-in install and service setup commands
 - **Auto-Service Management**: Automatic systemd service creation and configuration
-- **Directory Monitoring**: Watches for complete satellite pass directories from sathub
-- **Processing Delay**: Configurable delay before processing to allow sathub to complete
+- **YAML Configuration**: Simple, structured configuration file
+- **Directory Monitoring**: Watches for complete satellite pass directories from SatDump
+- **Processing Delay**: Configurable delay before processing to allow SatDump to complete
 - **Complete Pass Processing**: Handles all data from a satellite pass (metadata, CBOR, images)
 - **Cross-Platform**: Binaries for Linux (x86_64 and ARM64), Windows (x86_64), and macOS (Intel and Apple Silicon)
 - **Station Health**: Sends periodic health checks to keep station online
 - **Error Recovery**: Automatic retry with configurable backoff
-- **Flexible Configuration**: Command-line arguments with environment variable fallbacks
 - **Rich Logging**: Structured logging with zerolog for better debugging
 
 ## Quick Installation & Setup (Recommended)
@@ -23,41 +23,25 @@ The easiest way to get started is with the built-in installation commands that h
 
 1. Create an account on [sathub.de](https://sathub.de)
 2. Create a ground station and note your **Station API Token**
-3. Install the client:
+3. Install and configure the client:
 
-**Linux/macOS (Easiest - One-line install):**
-
-```bash
-curl -sSL https://api.sathub.de/install | sudo bash
-```
-
-**Manual Download:**
-
-Download the client for your platform from [Releases](https://github.com/vleeuwenmenno/sathub-client/releases) and run:
+**Linux/macOS (One-line install):**
 
 ```bash
-# Linux/macOS - make executable first
-chmod +x sathub-client-*
-./sathub-client-* --token YOUR_STATION_TOKEN --watch /path/to/your/images
-
-# Windows
-sathub-client-windows-amd64.exe --token YOUR_STATION_TOKEN --watch C:\path\to\your\images
+curl -sSL https://api.sathub.de/install | bash
 ```
 
-The client will monitor the specified directory and automatically upload new satellite captures to your SatHub station.
-
-### 2. Setup as User Service
-
-Configure and start the systemd user service with guided setup:
+**After installation, setup the service:**
 
 ```bash
 # Setup systemd user service (interactive configuration - no sudo needed!)
 sathub-client install-service
 
 # The installer will:
-# - Create required directories in your home directory
+# - Install the binary to ~/.local/bin/sathub-client
+# - Create configuration file at ~/.config/sathub-client/config.yaml
+# - Create required directories (~/sathub/data, ~/sathub/processed)
 # - Prompt for your station token
-# - Configure watch and processed directories
 # - Enable and start the service automatically
 ```
 
@@ -65,21 +49,27 @@ sathub-client install-service
 
 ### Available Commands
 
-The SatHub client now includes built-in installation and management commands:
+The SatHub client includes built-in installation and management commands:
 
-| Command                         | Description                                                    |
-| ------------------------------- | -------------------------------------------------------------- |
-| `sathub-client`                 | Run the client normally (requires token and watch directory)   |
-| `sathub-client install`         | Install the binary to `/usr/bin/sathub-client` (requires sudo) |
-| `sathub-client install-service` | Setup systemd user service with guided configuration           |
-| `sathub-client version`         | Show version information                                       |
+| Command                              | Description                                              |
+| ------------------------------------ | -------------------------------------------------------- |
+| `sathub-client`                      | Run the client (requires config file)                    |
+| `sathub-client --config <path>`      | Run with custom config file location                     |
+| `sathub-client install`              | Install the binary to `~/.local/bin/sathub-client`       |
+| `sathub-client install-service`      | Setup systemd user service with guided configuration     |
+| `sathub-client uninstall-service`    | Stop and remove systemd user service                     |
+| `sathub-client update`               | Update to the latest version                             |
+| `sathub-client version`              | Show version information                                 |
 
-### Update Token
+### Update Configuration or Token
 
-If you need to update your station token later:
+To update your configuration (including station token):
 
 ```bash
-# Choose "y" when asked if you want to update the configuration
+# Edit the config file directly
+nano ~/.config/sathub-client/config.yaml
+
+# Or re-run the service installer to update settings
 sathub-client install-service
 ```
 
@@ -106,45 +96,63 @@ This creates the `sathub-client` binary in the `bin` directory.
 
 ## Configuration
 
-The client supports both command-line arguments and environment variables. Command-line arguments take precedence over environment variables.
+The client uses a YAML configuration file located at `~/.config/sathub-client/config.yaml` by default.
 
-### Command-Line Arguments
+### Configuration File Format
 
-```bash
-sathub-client --help
+```yaml
+station:
+  token: "your_station_token_here"
+  api_url: "https://api.sathub.de"
+
+paths:
+  watch: "/home/yourusername/sathub/data"
+  processed: "/home/yourusername/sathub/processed"
+
+intervals:
+  health_check: 300    # seconds (5 minutes)
+  process_delay: 60    # seconds (wait before processing new directories)
+
+options:
+  insecure: false      # Set to true for self-signed certificates (development)
+  verbose: false       # Enable debug logging
 ```
 
-| Flag          | Short | Default                 | Description                            |
-| ------------- | ----- | ----------------------- | -------------------------------------- |
-| `--token`     | `-t`  | _required_              | Station API token                      |
-| `--watch`     | `-w`  | _required_              | Directory path to watch for new images |
-| `--api`       | `-a`  | `https://api.sathub.de` | SatHub API URL                         |
-| `--processed` | `-p`  | `./processed`           | Directory to move processed files      |
-| `--verbose`   | `-v`  | `false`                 | Enable verbose (debug) logging         |
+### Configuration Options
 
-### Environment Variables (Fallbacks)
+| Section                | Option          | Default                 | Description                                       |
+| ---------------------- | --------------- | ----------------------- | ------------------------------------------------- |
+| `station`              | `token`         | _required_              | Station API token from SatHub                     |
+| `station`              | `api_url`       | `https://api.sathub.de` | SatHub API URL                                    |
+| `paths`                | `watch`         | `~/sathub/data`         | Directory to monitor for new satellite passes     |
+| `paths`                | `processed`     | `~/sathub/processed`    | Directory to move processed files                 |
+| `intervals`            | `health_check`  | `300`                   | Health check interval in seconds (5 minutes)      |
+| `intervals`            | `process_delay` | `60`                    | Delay before processing new directories (seconds) |
+| `options`              | `insecure`      | `false`                 | Allow insecure HTTPS connections                  |
+| `options`              | `verbose`       | `false`                 | Enable verbose (debug) logging                    |
 
-| Variable        | Description                                                               |
-| --------------- | ------------------------------------------------------------------------- |
-| `STATION_TOKEN` | Station authentication token (fallback for `--token`)                     |
-| `WATCH_PATHS`   | Directory to monitor (fallback for `--watch`)                             |
-| `API_URL`       | SatHub API base URL (fallback for `--api`)                                |
-| `PROCESSED_DIR` | Directory to move processed satellite passes (fallback for `--processed`) |
+### Custom Configuration File
+
+You can specify a custom configuration file location:
+
+```bash
+sathub-client --config /path/to/custom-config.yaml
+```
 
 ## Data Format
 
-The client processes complete satellite pass directories from sathub output. Each directory should contain:
+The client processes complete satellite pass directories from SatDump output. Each directory should contain:
 
-### Required Files:
+### Required Files
 
 - `dataset.json` - Main metadata file with satellite information
 - At least one product directory (e.g., `MSU-MR/`, `MSU-MR (Filled)/`) containing:
   - `product.cbor` - Binary satellite data
   - Multiple `.png` images from the processed data
 
-### Example Directory Structure:
+### Example Directory Structure
 
-```
+```text
 2025-09-26_13-01_meteor_m2-x_lrpt_137.9 MHz/
 ├── dataset.json          # Satellite metadata
 ├── meteor_m2-x_lrpt.cadu # CADU data (optional)
@@ -158,7 +166,7 @@ The client processes complete satellite pass directories from sathub output. Eac
     └── ...
 ```
 
-### dataset.json Format:
+### dataset.json Format
 
 The client extracts comprehensive satellite and dataset information from `dataset.json`:
 
@@ -195,50 +203,37 @@ All PNG images from product directories are automatically uploaded as post image
 
 ## Usage
 
-### Command-Line Usage
+### Running the Client
+
+After configuring, simply run:
 
 ```bash
-# Linux/macOS
-./sathub-client --token YOUR_STATION_TOKEN --watch /path/to/satellite/data
+# Run with default config location (~/.config/sathub-client/config.yaml)
+sathub-client
 
-# Windows
-sathub-client.exe --token YOUR_STATION_TOKEN --watch C:\path\to\satellite\data
-
-# With custom API server
-./sathub-client --token YOUR_TOKEN --watch /path/to/data --api https://my-sathub.example.com
-
-# Enable verbose logging
-./sathub-client --token YOUR_TOKEN --watch /path/to/data --verbose
-
-# Custom processed directory
-./sathub-client --token YOUR_TOKEN --watch /path/to/data --processed /path/to/archive
+# Run with custom config file
+sathub-client --config /path/to/config.yaml
 ```
 
-### Environment Variable Usage (Legacy)
+The client will:
 
-You can still use environment variables as an alternative to command-line arguments:
+1. Monitor the configured watch directory for new satellite pass directories
+2. Wait for the configured process delay to ensure SatDump has finished
+3. Automatically upload complete passes (metadata, CBOR data, images) to your SatHub station
+4. Send periodic health checks to keep your station marked as online
+5. Move processed directories to the configured processed directory
 
-```bash
-# Set environment variables
-export STATION_TOKEN=your_station_token_from_sathub
-export WATCH_PATHS=/path/to/satellite/data
-export API_URL=https://api.sathub.de
+### Example Output
 
-# Run the client (no arguments needed)
-./sathub-client
-```
-
-### Mixed Usage
-
-Environment variables provide defaults that can be overridden by command-line arguments:
-
-```bash
-# Set defaults via environment
-export STATION_TOKEN=your_default_token
-export API_URL=https://api.sathub.de
-
-# Override watch path via command line
-./sathub-client --watch /different/path --verbose
+```text
+2024-01-15T10:30:00Z INF Starting SatHub Data Client version=v2.0.0 api_url=https://api.sathub.de
+2024-01-15T10:30:00Z INF Configuration parameters health_check_interval=300 process_delay=60
+2024-01-15T10:30:00Z INF Starting directory watcher path=/home/user/sathub/data
+2024-01-15T10:35:23Z INF New directory detected dir=2024-01-15_10-34_NOAA-19_apt_137.1MHz
+2024-01-15T10:36:23Z INF Processing complete satellite pass
+2024-01-15T10:36:25Z INF Post created successfully post_id=abc123
+2024-01-15T10:36:27Z INF Uploaded 3 images
+2024-01-15T10:36:28Z INF Successfully processed satellite pass
 ```
 
 ### Systemd User Service (Linux)
@@ -252,7 +247,9 @@ sathub-client install-service
 
 This will:
 
+- Install the binary to `~/.local/bin/sathub-client`
 - Create the systemd user service file automatically
+- Create configuration file at `~/.config/sathub-client/config.yaml`
 - Create required directories in your home directory
 - Prompt for your station token and configuration
 - Enable and start the service
@@ -260,48 +257,35 @@ This will:
 **Managing the service:**
 
 ```bash
-# Start the service
-systemctl --user start sathub-client
+# Check service status
+systemctl --user status sathub-client
+
+# View logs (follow mode)
+journalctl --user -u sathub-client -f
+
+# View recent logs
+journalctl --user -u sathub-client -n 100
+
+# Restart service (after config changes)
+systemctl --user restart sathub-client
 
 # Stop the service
 systemctl --user stop sathub-client
 
-# Check service status
-systemctl --user status sathub-client
+# Start the service
+systemctl --user start sathub-client
 
-# View logs
-journalctl --user -u sathub-client -f
+# Disable service
+systemctl --user disable sathub-client
 
 # Enable automatic start even when not logged in
 loginctl enable-linger $USER
 ```
 
-**Manual service configuration** (if you prefer manual setup):
-
-Create `~/.config/systemd/user/sathub-client.service`:
-
-```ini
-[Unit]
-Description=SatHub Data Client
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/sathub-client --token your_token_here --watch /home/yourusername/sathub/data --api https://api.sathub.de --processed /home/yourusername/sathub/processed
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-```
-
-Then enable and start manually:
+**Uninstall the service:**
 
 ```bash
-systemctl --user daemon-reload
-systemctl --user enable sathub-client
-systemctl --user start sathub-client
-systemctl --user status sathub-client
+sathub-client uninstall-service
 ```
 
 ## Error Handling
