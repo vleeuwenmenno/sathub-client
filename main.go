@@ -165,7 +165,7 @@ func runClient() error {
 	if err != nil {
 		return fmt.Errorf("initial health check failed: %w", err)
 	}
-	
+
 	// Update config with server settings
 	watcherConfig.UpdateFromServerSettings(healthResp.Settings)
 	logger.Info().Msg("Applied server settings to configuration")
@@ -183,7 +183,7 @@ func runClient() error {
 
 	// Initialize WebSocket client
 	wsClient := NewWSClient(cfg, configPath, healthResp.StationID)
-	
+
 	// Periodic health check ticker (may be updated by WebSocket settings)
 	ticker := time.NewTicker(time.Duration(cfg.Intervals.HealthCheck) * time.Second)
 	defer ticker.Stop()
@@ -247,7 +247,7 @@ func runClient() error {
 		case <-restartChan:
 			logger.Info().Msg("Restart requested, shutting down gracefully...")
 			watcher.Stop()
-			// Note: When running as systemd service with Restart=always, 
+			// Note: When running as systemd service with Restart=always,
 			// the service will automatically restart. When running manually,
 			// you'll need to restart it yourself.
 			return fmt.Errorf("restart requested")

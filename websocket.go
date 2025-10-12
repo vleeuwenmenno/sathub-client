@@ -410,7 +410,7 @@ func (ws *WSClient) buildWebSocketURL() (string, error) {
 
 	// Build WebSocket path
 	wsPath := fmt.Sprintf("/api/stations/%s/ws", ws.stationID)
-	
+
 	// Remove any existing path and set our WebSocket path
 	u.Path = strings.TrimSuffix(u.Path, "/") + wsPath
 
