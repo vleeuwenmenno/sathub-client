@@ -307,6 +307,7 @@ func (c *APIClient) UploadCADU(postID string, caduPath string) error {
 // HealthResponse represents the response from a health check
 type HealthResponse struct {
 	Status    string                 `json:"status"`
+	StationID string                 `json:"station_id"`
 	Timestamp string                 `json:"timestamp"`
 	Settings  map[string]interface{} `json:"settings,omitempty"`
 }

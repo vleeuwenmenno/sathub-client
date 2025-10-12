@@ -161,13 +161,14 @@ func runClient() error {
 
 	// Test API connection with health check
 	logger.Info().Msg("Testing API connection...")
-	if healthResp, err := apiClient.StationHealth(); err != nil {
-		logger.Warn().Err(err).Msg("Initial health check failed")
-	} else {
-		// Update config with server settings
-		watcherConfig.UpdateFromServerSettings(healthResp.Settings)
-		logger.Info().Msg("Applied server settings to configuration")
+	healthResp, err := apiClient.StationHealth()
+	if err != nil {
+		return fmt.Errorf("initial health check failed: %w", err)
 	}
+	
+	// Update config with server settings
+	watcherConfig.UpdateFromServerSettings(healthResp.Settings)
+	logger.Info().Msg("Applied server settings to configuration")
 
 	// Create file watcher
 	watcher, err := NewFileWatcher(watcherConfig, apiClient)
@@ -180,15 +181,61 @@ func runClient() error {
 		return fmt.Errorf("failed to start file watcher: %w", err)
 	}
 
-	logger.Info().Msg("SatHub Data Client started successfully")
+	// Initialize WebSocket client
+	wsClient := NewWSClient(cfg, configPath, healthResp.StationID)
+	
+	// Periodic health check ticker (may be updated by WebSocket settings)
+	ticker := time.NewTicker(time.Duration(cfg.Intervals.HealthCheck) * time.Second)
+	defer ticker.Stop()
+
+	// Set up WebSocket callbacks
+	wsClient.SetOnSettingsUpdate(func(settings *SettingsUpdatePayload) {
+		logger.Info().
+			Int("health_check_interval", settings.HealthCheckInterval).
+			Int("process_delay", settings.ProcessDelay).
+			Msg("Received settings update from server")
+
+		// Update in-memory config
+		cfg.Intervals.HealthCheck = settings.HealthCheckInterval
+		cfg.Intervals.ProcessDelay = settings.ProcessDelay
+
+		// Update watcher config
+		watcherConfig.ProcessDelay = time.Duration(settings.ProcessDelay) * time.Second
+
+		// Save to disk
+		if err := cfg.Save(configPath); err != nil {
+			logger.Error().Err(err).Msg("Failed to save updated configuration")
+		} else {
+			logger.Info().Msg("Configuration updated and saved")
+		}
+
+		// Reset health check ticker with new interval
+		ticker.Reset(time.Duration(settings.HealthCheckInterval) * time.Second)
+		logger.Info().Int("interval", settings.HealthCheckInterval).Msg("Health check interval updated")
+	})
 
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Periodic health check
-	ticker := time.NewTicker(time.Duration(cfg.Intervals.HealthCheck) * time.Second)
-	defer ticker.Stop()
+	// Restart signal channel
+	restartChan := make(chan struct{})
+
+	wsClient.SetOnRestart(func() {
+		logger.Info().Msg("Received restart command from server")
+		// Signal the main loop to restart
+		select {
+		case restartChan <- struct{}{}:
+		default:
+			logger.Warn().Msg("Restart already in progress")
+		}
+	})
+
+	// Start WebSocket connection (runs in background with auto-reconnect)
+	wsClient.Start()
+	defer wsClient.Stop()
+
+	logger.Info().Msg("SatHub Data Client started successfully")
 
 	for {
 		select {
@@ -196,6 +243,14 @@ func runClient() error {
 			logger.Info().Str("signal", sig.String()).Msg("Received shutdown signal")
 			watcher.Stop()
 			return nil
+
+		case <-restartChan:
+			logger.Info().Msg("Restart requested, shutting down gracefully...")
+			watcher.Stop()
+			// Note: When running as systemd service with Restart=always, 
+			// the service will automatically restart. When running manually,
+			// you'll need to restart it yourself.
+			return fmt.Errorf("restart requested")
 
 		case <-ticker.C:
 			if healthResp, err := apiClient.StationHealth(); err != nil {
