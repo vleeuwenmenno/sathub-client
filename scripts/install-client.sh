@@ -37,7 +37,9 @@ log_error() {
 # Check if running as root
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        log_error "This script must be run as root (sudo)"
+        log_info "Running as $USER..."
+    else
+        log_error "This script should not be run as root. Please run as a regular user."
         exit 1
     fi
 }
