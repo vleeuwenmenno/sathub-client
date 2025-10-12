@@ -51,15 +51,15 @@ sathub-client install-service
 
 The SatHub client includes built-in installation and management commands:
 
-| Command                              | Description                                              |
-| ------------------------------------ | -------------------------------------------------------- |
-| `sathub-client`                      | Run the client (requires config file)                    |
-| `sathub-client --config <path>`      | Run with custom config file location                     |
-| `sathub-client install`              | Install the binary to `~/.local/bin/sathub-client`       |
-| `sathub-client install-service`      | Setup systemd user service with guided configuration     |
-| `sathub-client uninstall-service`    | Stop and remove systemd user service                     |
-| `sathub-client update`               | Update to the latest version                             |
-| `sathub-client version`              | Show version information                                 |
+| Command                           | Description                                          |
+| --------------------------------- | ---------------------------------------------------- |
+| `sathub-client`                   | Run the client (requires config file)                |
+| `sathub-client --config <path>`   | Run with custom config file location                 |
+| `sathub-client install`           | Install the binary to `~/.local/bin/sathub-client`   |
+| `sathub-client install-service`   | Setup systemd user service with guided configuration |
+| `sathub-client uninstall-service` | Stop and remove systemd user service                 |
+| `sathub-client update`            | Update to the latest version                         |
+| `sathub-client version`           | Show version information                             |
 
 ### Update Configuration or Token
 
@@ -110,26 +110,26 @@ paths:
   processed: "/home/yourusername/sathub/processed"
 
 intervals:
-  health_check: 300    # seconds (5 minutes)
-  process_delay: 60    # seconds (wait before processing new directories)
+  health_check: 300 # seconds (5 minutes)
+  process_delay: 60 # seconds (wait before processing new directories)
 
 options:
-  insecure: false      # Set to true for self-signed certificates (development)
-  verbose: false       # Enable debug logging
+  insecure: false # Set to true for self-signed certificates (development)
+  verbose: false # Enable debug logging
 ```
 
 ### Configuration Options
 
-| Section                | Option          | Default                 | Description                                       |
-| ---------------------- | --------------- | ----------------------- | ------------------------------------------------- |
-| `station`              | `token`         | _required_              | Station API token from SatHub                     |
-| `station`              | `api_url`       | `https://api.sathub.de` | SatHub API URL                                    |
-| `paths`                | `watch`         | `~/sathub/data`         | Directory to monitor for new satellite passes     |
-| `paths`                | `processed`     | `~/sathub/processed`    | Directory to move processed files                 |
-| `intervals`            | `health_check`  | `300`                   | Health check interval in seconds (5 minutes)      |
-| `intervals`            | `process_delay` | `60`                    | Delay before processing new directories (seconds) |
-| `options`              | `insecure`      | `false`                 | Allow insecure HTTPS connections                  |
-| `options`              | `verbose`       | `false`                 | Enable verbose (debug) logging                    |
+| Section     | Option          | Default                 | Description                                       |
+| ----------- | --------------- | ----------------------- | ------------------------------------------------- |
+| `station`   | `token`         | _required_              | Station API token from SatHub                     |
+| `station`   | `api_url`       | `https://api.sathub.de` | SatHub API URL                                    |
+| `paths`     | `watch`         | `~/sathub/data`         | Directory to monitor for new satellite passes     |
+| `paths`     | `processed`     | `~/sathub/processed`    | Directory to move processed files                 |
+| `intervals` | `health_check`  | `300`                   | Health check interval in seconds (5 minutes)      |
+| `intervals` | `process_delay` | `60`                    | Delay before processing new directories (seconds) |
+| `options`   | `insecure`      | `false`                 | Allow insecure HTTPS connections                  |
+| `options`   | `verbose`       | `false`                 | Enable verbose (debug) logging                    |
 
 ### Custom Configuration File
 
