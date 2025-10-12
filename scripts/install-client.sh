@@ -8,7 +8,7 @@ set -e
 # Configuration
 REPO="vleeuwenmenno/sathub-client"
 GITHUB_API="https://api.github.com/repos/${REPO}/releases/latest"
-INSTALL_PATH="/usr/bin/sathub-client"
+INSTALL_PATH="$HOME/.local/bin/sathub-client"
 
 # Colors for output
 RED='\033[0;31m'
@@ -232,7 +232,10 @@ download_and_install() {
         exit 1
     fi
 
-    # Install to /usr/bin
+    # Create install directory if it doesn't exist
+    mkdir -p "$(dirname "$INSTALL_PATH")"
+
+    # Install to ~/.local/bin
     log_info "Installing to ${INSTALL_PATH}..."
     mv "$TMP_FILE" "$INSTALL_PATH"
 
@@ -363,6 +366,16 @@ main() {
     if [[ "$NEEDS_INSTALL" == "true" ]]; then
         log_success "Installation complete!"
         echo
+        echo "Binary installed to: ${INSTALL_PATH}"
+        echo
+        # Check if ~/.local/bin is in PATH
+        if [[ ":$PATH:" != *":$HOME/.local/bin:"* ]]; then
+            log_warning "~/.local/bin is not in your PATH"
+            echo "Add this line to your ~/.bashrc or ~/.zshrc:"
+            echo '  export PATH="$HOME/.local/bin:$PATH"'
+            echo "Then run: source ~/.bashrc (or restart your terminal)"
+            echo
+        fi
         echo "Next steps:"
         echo "  1. Set up the systemd service: sathub-client install-service"
         echo "  2. Or edit config manually: ~/.config/sathub-client/config.yaml"
