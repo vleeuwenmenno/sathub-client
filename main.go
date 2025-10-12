@@ -10,6 +10,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"sathub-client/config"
 	"strconv"
 	"strings"
 	"syscall"
@@ -21,30 +22,39 @@ import (
 )
 
 var (
-	token               string
-	watchPath           string
-	apiURL              string
-	processedDir        string
-	processDelay        int
-	healthCheckInterval int
-	verbose             bool
-	insecure            bool
-	logger              zerolog.Logger
+	configPath string
+	cfg        *config.Config
+	logger     zerolog.Logger
 )
 
 var rootCmd = &cobra.Command{
 	Use:   "sathub-client",
 	Short: "SatHub Data Client for uploading satellite captures",
 	Long: `SatHub Data Client automatically monitors directories for new satellite images
-and uploads them to your SatHub station using the station's API token.`,
-	Example: `  # Basic usage
-  sathub-client --token abc123def --watch /home/user/satellite-images
+and uploads them to your SatHub station. Configuration is loaded from a YAML file.`,
+	Example: `  # Run with default config location (~/.config/sathub-client/config.yaml)
+  sathub-client
 
-  # With custom API URL and processed directory
-  sathub-client --token abc123def --watch /path/to/images --api https://my-api.com --processed ./done`,
+  # Run with custom config file
+  sathub-client --config /path/to/config.yaml`,
 	PreRun: func(cmd *cobra.Command, args []string) {
+		// Load configuration
+		var err error
+		cfg, err = config.LoadOrDefault(configPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error loading config: %v\n", err)
+			os.Exit(1)
+		}
+
+		// Validate that token is set
+		if cfg.Station.Token == "" {
+			fmt.Fprintf(os.Stderr, "Error: station token is not configured\n")
+			fmt.Fprintf(os.Stderr, "Please edit your config file at: %s\n", configPath)
+			os.Exit(1)
+		}
+
 		// Configure logger
-		if verbose {
+		if cfg.Options.Verbose {
 			zerolog.SetGlobalLevel(zerolog.DebugLevel)
 		} else {
 			zerolog.SetGlobalLevel(zerolog.InfoLevel)
@@ -74,8 +84,8 @@ var versionCmd = &cobra.Command{
 
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Install sathub-client to /usr/bin",
-	Long:  "Install sathub-client to /usr/bin. Checks if current version is newer than installed version.",
+	Short: "Install sathub-client to ~/.local/bin",
+	Long:  "Install sathub-client to ~/.local/bin. Checks if current version is newer than installed version.",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		return installBinary()
 	},
@@ -119,80 +129,49 @@ func init() {
 	rootCmd.AddCommand(uninstallServiceCmd)
 	rootCmd.AddCommand(updateCmd)
 
-	// Set defaults from environment variables
-	defaultToken := os.Getenv("STATION_TOKEN")
-	defaultWatch := os.Getenv("WATCH_PATHS")
-	defaultAPI := getEnvWithDefault("API_URL", "https://api.sathub.de")
-	defaultProcessed := getEnvWithDefault("PROCESSED_DIR", "./processed")
-	defaultHealthCheckInterval := getEnvWithDefault("HEALTH_CHECK_INTERVAL", "300")
-	defaultProcessDelay := getEnvWithDefault("PROCESS_DELAY", "60")
-
-	// Parse int values from environment
-	healthInterval, err := strconv.Atoi(defaultHealthCheckInterval)
-	if err != nil || healthInterval <= 0 {
-		healthInterval = 300
-	}
-	procDelay, err := strconv.Atoi(defaultProcessDelay)
-	if err != nil || procDelay <= 0 {
-		procDelay = 60
-	}
-
-	// Define command line flags
-	rootCmd.Flags().StringVarP(&token, "token", "t", defaultToken, "Station API token (required, or set STATION_TOKEN env var)")
-	rootCmd.Flags().StringVarP(&watchPath, "watch", "w", defaultWatch, "Directory path to watch for new images (required, or set WATCH_PATHS env var)")
-	rootCmd.Flags().StringVarP(&apiURL, "api", "a", defaultAPI, "SatHub API URL (or set API_URL env var)")
-	rootCmd.Flags().StringVarP(&processedDir, "processed", "p", defaultProcessed, "Directory to move processed files (or set PROCESSED_DIR env var)")
-	rootCmd.Flags().IntVar(&processDelay, "process-delay", procDelay, "Delay in seconds before processing new directories (or set PROCESS_DELAY env var)")
-	rootCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose logging")
-	rootCmd.Flags().BoolVarP(&insecure, "insecure", "k", false, "Skip TLS certificate verification (for self-signed certificates)")
-	rootCmd.Flags().IntVar(&healthCheckInterval, "health-interval", healthInterval, "Health check interval in seconds (or set HEALTH_CHECK_INTERVAL env var)")
-
-	// Only mark as required if not set via environment
-	if defaultToken == "" {
-		rootCmd.MarkFlagRequired("token")
-	}
-	if defaultWatch == "" {
-		rootCmd.MarkFlagRequired("watch")
-	}
-}
-
-func getEnvWithDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
+	// Only flag is --config for specifying config file location
+	rootCmd.Flags().StringVarP(&configPath, "config", "c", config.DefaultConfigPath, "Path to configuration file")
 }
 
 func runClient() error {
 	logger.Info().
 		Str("version", VERSION).
-		Str("api_url", apiURL).
-		Str("watch_path", watchPath).
-		Str("processed_dir", processedDir).
+		Str("api_url", cfg.Station.APIURL).
+		Str("watch_path", cfg.Paths.Watch).
+		Str("processed_dir", cfg.Paths.Processed).
 		Msg("Starting SatHub Data Client")
 
 	// Log intervals
 	logger.Info().
-		Int("health_check_interval", healthCheckInterval).
-		Int("process_delay", processDelay).
+		Int("health_check_interval", cfg.Intervals.HealthCheck).
+		Int("process_delay", cfg.Intervals.ProcessDelay).
 		Msg("Configuration parameters")
 
-	// Create configuration from command line arguments
-	config := NewConfig(apiURL, token, watchPath, processedDir, time.Duration(processDelay)*time.Second)
+	// Create configuration for watcher (uses old Config struct)
+	watcherConfig := NewConfig(
+		cfg.Station.APIURL,
+		cfg.Station.Token,
+		cfg.Paths.Watch,
+		cfg.Paths.Processed,
+		time.Duration(cfg.Intervals.ProcessDelay)*time.Second,
+	)
 
 	// Create API client
-	apiClient := NewAPIClient(config.APIURL, config.StationToken, insecure)
+	apiClient := NewAPIClient(cfg.Station.APIURL, cfg.Station.Token, cfg.Options.Insecure)
 
 	// Test API connection with health check
 	logger.Info().Msg("Testing API connection...")
-	if err := apiClient.StationHealth(); err != nil {
-		logger.Warn().Err(err).Msg("Initial health check failed")
-	} else {
-		logger.Info().Msg("API connection successful")
+	healthResp, err := apiClient.StationHealth()
+	if err != nil {
+		return fmt.Errorf("initial health check failed: %w", err)
 	}
 
+	// Update config with server settings
+	watcherConfig.UpdateFromServerSettings(healthResp.Settings)
+	logger.Info().Msg("Applied server settings to configuration")
+
 	// Create file watcher
-	watcher, err := NewFileWatcher(config, apiClient)
+	watcher, err := NewFileWatcher(watcherConfig, apiClient)
 	if err != nil {
 		return fmt.Errorf("failed to create file watcher: %w", err)
 	}
@@ -202,15 +181,61 @@ func runClient() error {
 		return fmt.Errorf("failed to start file watcher: %w", err)
 	}
 
-	logger.Info().Msg("SatHub Data Client started successfully")
+	// Initialize WebSocket client
+	wsClient := NewWSClient(cfg, configPath, healthResp.StationID)
+
+	// Periodic health check ticker (may be updated by WebSocket settings)
+	ticker := time.NewTicker(time.Duration(cfg.Intervals.HealthCheck) * time.Second)
+	defer ticker.Stop()
+
+	// Set up WebSocket callbacks
+	wsClient.SetOnSettingsUpdate(func(settings *SettingsUpdatePayload) {
+		logger.Info().
+			Int("health_check_interval", settings.HealthCheckInterval).
+			Int("process_delay", settings.ProcessDelay).
+			Msg("Received settings update from server")
+
+		// Update in-memory config
+		cfg.Intervals.HealthCheck = settings.HealthCheckInterval
+		cfg.Intervals.ProcessDelay = settings.ProcessDelay
+
+		// Update watcher config
+		watcherConfig.ProcessDelay = time.Duration(settings.ProcessDelay) * time.Second
+
+		// Save to disk
+		if err := cfg.Save(configPath); err != nil {
+			logger.Error().Err(err).Msg("Failed to save updated configuration")
+		} else {
+			logger.Info().Msg("Configuration updated and saved")
+		}
+
+		// Reset health check ticker with new interval
+		ticker.Reset(time.Duration(settings.HealthCheckInterval) * time.Second)
+		logger.Info().Int("interval", settings.HealthCheckInterval).Msg("Health check interval updated")
+	})
 
 	// Wait for shutdown signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
-	// Periodic health check
-	ticker := time.NewTicker(time.Duration(healthCheckInterval) * time.Second)
-	defer ticker.Stop()
+	// Restart signal channel
+	restartChan := make(chan struct{})
+
+	wsClient.SetOnRestart(func() {
+		logger.Info().Msg("Received restart command from server")
+		// Signal the main loop to restart
+		select {
+		case restartChan <- struct{}{}:
+		default:
+			logger.Warn().Msg("Restart already in progress")
+		}
+	})
+
+	// Start WebSocket connection (runs in background with auto-reconnect)
+	wsClient.Start()
+	defer wsClient.Stop()
+
+	logger.Info().Msg("SatHub Data Client started successfully")
 
 	for {
 		select {
@@ -219,23 +244,39 @@ func runClient() error {
 			watcher.Stop()
 			return nil
 
+		case <-restartChan:
+			logger.Info().Msg("Restart requested, shutting down gracefully...")
+			watcher.Stop()
+			// Note: When running as systemd service with Restart=always,
+			// the service will automatically restart. When running manually,
+			// you'll need to restart it yourself.
+			return fmt.Errorf("restart requested")
+
 		case <-ticker.C:
-			if err := apiClient.StationHealth(); err != nil {
+			if healthResp, err := apiClient.StationHealth(); err != nil {
 				logger.Warn().Err(err).Msg("Health check failed")
 			} else {
+				// Update config with server settings
+				watcherConfig.UpdateFromServerSettings(healthResp.Settings)
 				logger.Info().Msg("Health check successful")
 			}
 		}
 	}
 }
 
-// installBinary installs the current binary to /usr/bin/sathub-client
+// installBinary installs the current binary to ~/.local/bin/sathub-client
 func installBinary() error {
-	const targetPath = "/usr/bin/sathub-client"
+	// Get current user
+	currentUser, err := user.Current()
+	if err != nil {
+		return fmt.Errorf("failed to get current user: %w", err)
+	}
 
-	// Check if we're running as root
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("installation requires root privileges. Please run with sudo")
+	targetPath := filepath.Join(currentUser.HomeDir, ".local", "bin", "sathub-client")
+
+	// Create the install directory if it doesn't exist
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return fmt.Errorf("failed to create install directory: %w", err)
 	}
 
 	// Get current executable path
@@ -287,11 +328,6 @@ func installBinary() error {
 func updateClient() error {
 	const installURL = "https://api.sathub.de/install"
 
-	// Check if we're running as root
-	if os.Geteuid() != 0 {
-		return fmt.Errorf("update requires root privileges. Please run with sudo")
-	}
-
 	fmt.Printf("Downloading latest version from %s...\n", installURL)
 	fmt.Println()
 
@@ -340,6 +376,7 @@ func installService() error {
 	// Use user systemd directory
 	systemdUserDir := filepath.Join(currentUser.HomeDir, ".config", "systemd", "user")
 	servicePath := filepath.Join(systemdUserDir, "sathub-client.service")
+	configFilePath := config.GetConfigPath(config.DefaultConfigPath)
 
 	// Create systemd user directory if it doesn't exist
 	if err := os.MkdirAll(systemdUserDir, 0755); err != nil {
@@ -356,33 +393,40 @@ func installService() error {
 		}
 	}
 
-	// Check if service already exists and extract existing configuration
-	var existingConfig *ServiceConfig
+	// Check if service already exists
 	serviceExists := false
 	if _, err := os.Stat(servicePath); err == nil {
 		serviceExists = true
 		fmt.Println("Systemd service already exists.")
+	}
 
-		// Extract existing configuration from service file
-		existingConfig = extractServiceConfiguration(servicePath)
-		if existingConfig != nil {
-			fmt.Println("Current configuration:")
-			fmt.Printf("  Token: %s\n", maskToken(existingConfig.Token))
-			fmt.Printf("  Watch Directory: %s\n", existingConfig.WatchPath)
-			fmt.Printf("  API URL: %s\n", existingConfig.APIURL)
-			fmt.Printf("  Processed Directory: %s\n", existingConfig.ProcessedDir)
-			fmt.Println()
+	// Load or create config file
+	var clientConfig *config.Config
+	if _, err := os.Stat(configFilePath); err == nil {
+		// Config exists, load it
+		clientConfig, err = config.Load(configFilePath)
+		if err != nil {
+			return fmt.Errorf("failed to load existing config: %w", err)
+		}
 
-			// Ask if user wants to modify configuration
-			fmt.Print("Do you want to modify the configuration? (Y/n): ")
-			reader := bufio.NewReader(os.Stdin)
-			response, _ := reader.ReadString('\n')
-			response = strings.ToLower(strings.TrimSpace(response))
+		fmt.Println("Current configuration:")
+		fmt.Printf("  Token: %s\n", maskToken(clientConfig.Station.Token))
+		fmt.Printf("  Watch Directory: %s\n", clientConfig.Paths.Watch)
+		fmt.Printf("  API URL: %s\n", clientConfig.Station.APIURL)
+		fmt.Printf("  Processed Directory: %s\n", clientConfig.Paths.Processed)
+		fmt.Println()
 
-			// If user says no (or enters 'n'), keep existing config and skip to reload
-			if response == "n" || response == "no" {
-				fmt.Println("Keeping existing configuration.")
+		// Ask if user wants to modify configuration
+		fmt.Print("Do you want to modify the configuration? (Y/n): ")
+		reader := bufio.NewReader(os.Stdin)
+		response, _ := reader.ReadString('\n')
+		response = strings.ToLower(strings.TrimSpace(response))
 
+		// If user says no, just reload/restart service if it exists
+		if response == "n" || response == "no" {
+			fmt.Println("Keeping existing configuration.")
+
+			if serviceExists {
 				// Reload systemd user daemon (in case binary was updated)
 				if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
 					fmt.Printf("Warning: failed to reload systemd: %v\n", err)
@@ -395,40 +439,96 @@ func installService() error {
 				} else {
 					fmt.Println("Service restarted successfully with updated binary.")
 				}
-
-				fmt.Println("Use 'systemctl --user status sathub-client' to check service status")
-				return nil
+			} else {
+				// Create new service with existing config
+				if err := createSystemdService(servicePath, binaryPath); err != nil {
+					return err
+				}
+				if err := enableAndStartService(serviceExists); err != nil {
+					return err
+				}
 			}
-			fmt.Println()
+
+			fmt.Println("Use 'systemctl --user status sathub-client' to check service status")
+			return nil
 		}
+		fmt.Println()
+	} else {
+		// No config exists, create default
+		clientConfig = config.Default()
 	}
 
-	// Get configuration from user (with existing values as defaults)
-	config, err := getServiceConfiguration(existingConfig, currentUser.HomeDir)
-	if err != nil {
-		return fmt.Errorf("failed to get service configuration: %w", err)
+	// Get configuration from user
+	if err := promptForConfiguration(clientConfig, currentUser.HomeDir); err != nil {
+		return fmt.Errorf("failed to get configuration: %w", err)
 	}
 
-	// Generate service content
-	serviceContent := generateServiceFile(config, binaryPath)
-
-	// Write service file
-	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
-		return fmt.Errorf("failed to write service file: %w", err)
+	// Save config file
+	if err := clientConfig.Save(configFilePath); err != nil {
+		return fmt.Errorf("failed to save config file: %w", err)
 	}
+
+	fmt.Printf("Configuration saved to: %s\n", configFilePath)
 
 	// Create directories if they don't exist
-	for _, dir := range []string{config.WatchPath, config.ProcessedDir} {
+	for _, dir := range []string{clientConfig.Paths.Watch, clientConfig.Paths.Processed} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			return fmt.Errorf("failed to create directory %s: %w", dir, err)
 		}
 	}
 
-	// Reload user systemd and enable service
+	// Generate and write service file
+	if err := createSystemdService(servicePath, binaryPath); err != nil {
+		return err
+	}
+
+	// Enable and start service
+	if err := enableAndStartService(serviceExists); err != nil {
+		return err
+	}
+
+	fmt.Println()
+	fmt.Println("Service installed and running!")
+	fmt.Println("Use 'systemctl --user status sathub-client' to check service status")
+	fmt.Println("Use 'journalctl --user -u sathub-client -f' to view logs")
+	fmt.Println()
+	fmt.Println("To enable the service to start automatically after reboot (even when not logged in):")
+	fmt.Println("  loginctl enable-linger $USER")
+
+	return nil
+}
+
+// createSystemdService creates the systemd service file
+func createSystemdService(servicePath, binaryPath string) error {
+	serviceContent := fmt.Sprintf(`[Unit]
+Description=SatHub Data Client v2
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=%s
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target
+`, binaryPath)
+
+	if err := os.WriteFile(servicePath, []byte(serviceContent), 0644); err != nil {
+		return fmt.Errorf("failed to write service file: %w", err)
+	}
+
+	return nil
+}
+
+// enableAndStartService enables and starts the systemd service
+func enableAndStartService(serviceExists bool) error {
+	// Reload user systemd
 	if err := exec.Command("systemctl", "--user", "daemon-reload").Run(); err != nil {
 		return fmt.Errorf("failed to reload systemd: %w", err)
 	}
 
+	// Enable service
 	if err := exec.Command("systemctl", "--user", "enable", "sathub-client").Run(); err != nil {
 		return fmt.Errorf("failed to enable service: %w", err)
 	}
@@ -450,13 +550,51 @@ func installService() error {
 		fmt.Println("✓ Service started successfully!")
 	}
 
-	fmt.Println()
-	fmt.Println("Service installed and running!")
-	fmt.Println("Use 'systemctl --user status sathub-client' to check service status")
-	fmt.Println("Use 'journalctl --user -u sathub-client -f' to view logs")
-	fmt.Println()
-	fmt.Println("To enable the service to start automatically after reboot (even when not logged in):")
-	fmt.Println("  loginctl enable-linger $USER")
+	return nil
+}
+
+// promptForConfiguration prompts the user for configuration values
+func promptForConfiguration(cfg *config.Config, homeDir string) error {
+	reader := bufio.NewReader(os.Stdin)
+
+	// Prompt for token
+	if cfg.Station.Token != "" {
+		fmt.Printf("Enter station token [%s]: ", maskToken(cfg.Station.Token))
+	} else {
+		fmt.Print("Enter station token: ")
+	}
+	token, _ := reader.ReadString('\n')
+	token = strings.TrimSpace(token)
+	if token != "" {
+		cfg.Station.Token = token
+	}
+	if cfg.Station.Token == "" {
+		return fmt.Errorf("token cannot be empty")
+	}
+
+	// Prompt for watch directory
+	fmt.Printf("Enter watch directory [%s]: ", cfg.Paths.Watch)
+	watchPath, _ := reader.ReadString('\n')
+	watchPath = strings.TrimSpace(watchPath)
+	if watchPath != "" {
+		cfg.Paths.Watch = watchPath
+	}
+
+	// Prompt for API URL
+	fmt.Printf("Enter API URL [%s]: ", cfg.Station.APIURL)
+	apiURL, _ := reader.ReadString('\n')
+	apiURL = strings.TrimSpace(apiURL)
+	if apiURL != "" {
+		cfg.Station.APIURL = apiURL
+	}
+
+	// Prompt for processed directory
+	fmt.Printf("Enter processed directory [%s]: ", cfg.Paths.Processed)
+	processedDir, _ := reader.ReadString('\n')
+	processedDir = strings.TrimSpace(processedDir)
+	if processedDir != "" {
+		cfg.Paths.Processed = processedDir
+	}
 
 	return nil
 }
@@ -512,145 +650,6 @@ func uninstallService() error {
 	fmt.Println("  - Any configuration files")
 
 	return nil
-}
-
-// extractServiceConfiguration extracts configuration from an existing service file
-func extractServiceConfiguration(servicePath string) *ServiceConfig {
-	content, err := os.ReadFile(servicePath)
-	if err != nil {
-		return nil
-	}
-
-	config := &ServiceConfig{}
-
-	// Extract token
-	if re := regexp.MustCompile(`--token\s+(\S+)`); re.MatchString(string(content)) {
-		matches := re.FindStringSubmatch(string(content))
-		if len(matches) > 1 {
-			config.Token = matches[1]
-		}
-	}
-
-	// Extract watch path
-	if re := regexp.MustCompile(`--watch\s+(\S+)`); re.MatchString(string(content)) {
-		matches := re.FindStringSubmatch(string(content))
-		if len(matches) > 1 {
-			config.WatchPath = matches[1]
-		}
-	}
-
-	// Extract API URL
-	if re := regexp.MustCompile(`--api\s+(\S+)`); re.MatchString(string(content)) {
-		matches := re.FindStringSubmatch(string(content))
-		if len(matches) > 1 {
-			config.APIURL = matches[1]
-		}
-	}
-
-	// Extract processed directory
-	if re := regexp.MustCompile(`--processed\s+(\S+)`); re.MatchString(string(content)) {
-		matches := re.FindStringSubmatch(string(content))
-		if len(matches) > 1 {
-			config.ProcessedDir = matches[1]
-		}
-	}
-
-	return config
-}
-
-// ServiceConfig holds the configuration for the systemd service
-type ServiceConfig struct {
-	Token        string
-	WatchPath    string
-	APIURL       string
-	ProcessedDir string
-}
-
-// getServiceConfiguration prompts user for service configuration
-// If existingConfig is provided, it will be used as default values
-func getServiceConfiguration(existingConfig *ServiceConfig, homeDir string) (*ServiceConfig, error) {
-	reader := bufio.NewReader(os.Stdin)
-	config := &ServiceConfig{}
-
-	// Set defaults based on user's home directory
-	defaultToken := ""
-	defaultWatchPath := filepath.Join(homeDir, "sathub", "data")
-	defaultAPIURL := "https://api.sathub.de"
-	defaultProcessedDir := filepath.Join(homeDir, "sathub", "processed")
-
-	// Use existing values as defaults if available
-	if existingConfig != nil {
-		if existingConfig.Token != "" {
-			defaultToken = existingConfig.Token
-		}
-		if existingConfig.WatchPath != "" {
-			defaultWatchPath = existingConfig.WatchPath
-		}
-		if existingConfig.APIURL != "" {
-			defaultAPIURL = existingConfig.APIURL
-		}
-		if existingConfig.ProcessedDir != "" {
-			defaultProcessedDir = existingConfig.ProcessedDir
-		}
-	}
-
-	// Prompt for token
-	if defaultToken != "" {
-		fmt.Printf("Enter station token [%s]: ", maskToken(defaultToken))
-	} else {
-		fmt.Print("Enter station token: ")
-	}
-	token, _ := reader.ReadString('\n')
-	config.Token = strings.TrimSpace(token)
-	if config.Token == "" {
-		config.Token = defaultToken
-	}
-	if config.Token == "" {
-		return nil, fmt.Errorf("token cannot be empty")
-	}
-
-	// Prompt for watch directory
-	fmt.Printf("Enter watch directory [%s]: ", defaultWatchPath)
-	watchPath, _ := reader.ReadString('\n')
-	config.WatchPath = strings.TrimSpace(watchPath)
-	if config.WatchPath == "" {
-		config.WatchPath = defaultWatchPath
-	}
-
-	// Prompt for API URL
-	fmt.Printf("Enter API URL [%s]: ", defaultAPIURL)
-	apiURL, _ := reader.ReadString('\n')
-	config.APIURL = strings.TrimSpace(apiURL)
-	if config.APIURL == "" {
-		config.APIURL = defaultAPIURL
-	}
-
-	// Prompt for processed directory
-	fmt.Printf("Enter processed directory [%s]: ", defaultProcessedDir)
-	processedDir, _ := reader.ReadString('\n')
-	config.ProcessedDir = strings.TrimSpace(processedDir)
-	if config.ProcessedDir == "" {
-		config.ProcessedDir = defaultProcessedDir
-	}
-
-	return config, nil
-}
-
-// generateServiceFile generates the systemd user service file content
-func generateServiceFile(config *ServiceConfig, binaryPath string) string {
-	return fmt.Sprintf(`[Unit]
-Description=SatHub Data Client
-After=network.target
-
-[Service]
-Type=simple
-ExecStart=%s --token %s --watch %s --api %s --processed %s
-Restart=always
-RestartSec=10
-
-[Install]
-WantedBy=default.target
-`, binaryPath, config.Token, config.WatchPath, config.APIURL, config.ProcessedDir)
 }
 
 // copyFile copies a file from src to dst

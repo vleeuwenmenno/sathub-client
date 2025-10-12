@@ -361,9 +361,14 @@ main() {
     if [[ "$NEEDS_INSTALL" == "true" ]]; then
         log_success "Installation complete!"
         echo
+        echo "Next steps:"
+        echo "  1. Set up the systemd service: sathub-client install-service"
+        echo "  2. Or edit config manually: ~/.config/sathub-client/config.yaml"
+        echo
         echo "Usage:"
         echo "  sathub-client --help"
-        echo "  sathub-client --token YOUR_TOKEN --watch /path/to/data"
+        echo "  sathub-client              # Uses default config location"
+        echo "  sathub-client --config /path/to/config.yaml"
     else
         log_success "Client is up to date!"
     fi

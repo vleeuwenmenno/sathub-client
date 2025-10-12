@@ -1,0 +1,12 @@
+station:
+    token: a6ab18fe683a18436d6f5821ab9efa52
+    api_url: https://api.sathub.local:9999
+paths:
+    watch: ./data
+    processed: ./data/processed
+intervals:
+    health_check: 60
+    process_delay: 60
+options:
+    insecure: true
+    verbose: true

@@ -71,3 +71,13 @@ func getEnvInt(key string, defaultValue int) int {
 	}
 	return defaultValue
 }
+
+// UpdateFromServerSettings updates the config with settings received from the server
+func (c *Config) UpdateFromServerSettings(settings map[string]interface{}) {
+	if processDelay, ok := settings["process_delay"]; ok {
+		if delay, ok := processDelay.(float64); ok {
+			c.ProcessDelay = time.Duration(delay) * time.Second
+		}
+	}
+	// Add more settings here as they are added to the server
+}
